@@ -190,7 +190,12 @@
     ['By-elections per year', (m) => m.byelections / m.years, 0.3, 2.5],
     ['Leaders toppled per year', (m) => m.toppled / m.years, 0.2, 1.5],
     ['Scandals per year', (m) => m.scandals / m.years, 1, 5],
-    ['Seats changing party per election', (m) => m.flips / Math.max(1, m.elections - 1), 1, 6]
+    ['Seats changing party per regular election', (m) => m.flips / Math.max(1, m.elections - 1), 1, 6],
+    ['Shutdowns per year', (m) => m.shutdowns / m.years, 0.2, 0.7],
+    ['Dissolutions per year', (m) => m.dissolutions / m.years, 0.08, 0.3],
+    ['Ethics inquiries per year', (m) => m.inquiries / m.years, 0.2, 1.5],
+    ['Term-limited senators per year', (m) => m.termLimited / m.years, 1, 6],
+    ['Lame-duck rebellions per year', (m) => m.lameDuck / m.years, 0.5, 5]
   ];
   function report(years) {
     const inst = S.create();
@@ -208,7 +213,10 @@
       filibusters: c((e) => e.type === 'filibuster.start'), concessions: c((e) => e.type === 'bill.concession'),
       defections: c((e) => e.type === 'senator.defected'), byelections: c((e) => e.type === 'byelection.result'),
       toppled: c((e) => e.type === 'leader.challenge' && e.data.won), scandals: c((e) => e.type === 'senator.scandal' || e.type === 'senator.resigned'),
-      flips: c((e) => e.type === 'election.result' && e.importance === 4)
+      flips: c((e) => e.type === 'election.result' && e.importance === 4),
+      shutdowns: c((e) => e.type === 'shutdown.begin'), dissolutions: c((e) => e.type === 'senate.dissolved'),
+      inquiries: c((e) => e.type === 'inquiry.opened'), termLimited: c((e) => e.type === 'senator.term_limited'),
+      lameDuck: c((e) => e.type === 'senate.rebellion' && e.data.lameDuck)
     };
     $('drama').innerHTML = '<thead><tr><th>Measure</th><th class="n">Result</th><th class="n">Target</th><th>Status</th></tr></thead><tbody>' +
       TARGETS.map(([label, f, lo, hi]) => {
@@ -250,13 +258,16 @@
       const px = x.senator ? order.indexOf(x.senator.party) : 5, py = y.senator ? order.indexOf(y.senator.party) : 5;
       return px - py || x.seat - y.seat;
     });
+    const note = st.dissolved ? 'Dissolved: snap election on ' + st.snapElection
+      : st.shutdown ? 'Shutdown, day ' + st.shutdown.days : st.presidingOfficer.title + ' ' + st.presidingOfficer.name;
+    svg.style.opacity = st.shutdown || st.dissolved ? 0.45 : 1;
     svg.innerHTML = seats.map((s, i) => {
       const p = pos[i], c = s.senator ? COLORS[s.senator.party] : 'none';
-      const title = s.senator ? s.senator.name + ', ' + NAMES[s.senator.party] + ', ' + s.district : 'Vacant, ' + s.district;
+      const duck = s.senator && s.senator.lameDuck;
+      const title = s.senator ? s.senator.name + ', ' + NAMES[s.senator.party] + ', ' + s.district + (duck ? ', lame duck' : '') : 'Vacant, ' + s.district;
       return '<rect x="' + (p.x - 4).toFixed(1) + '" y="' + (p.y - 4).toFixed(1) + '" width="8" height="8" fill="' + c +
-        '" stroke="' + (s.senator ? 'none' : '#93A4AE') + '"><title>' + esc(title) + '</title></rect>';
-    }).join('') + '<text x="200" y="224" fill="#93A4AE" text-anchor="middle" font-size="11">' +
-      esc(st.presidingOfficer.title + ' ' + st.presidingOfficer.name) + '</text>';
+        '" fill-opacity="' + (duck ? 0.45 : 1) + '" stroke="' + (s.senator ? 'none' : '#93A4AE') + '"><title>' + esc(title) + '</title></rect>';
+    }).join('') + '<text x="200" y="224" fill="#93A4AE" text-anchor="middle" font-size="11">' + esc(note) + '</text>';
   }
   function inspect(t) {
     const st = S.stateAt(t);
@@ -271,6 +282,11 @@
       add('Air-quality concern (stub)', Math.round(st.concern * 100) + '%');
       add('Next election', st.nextElection);
       add('Filibuster', st.filibuster ? esc(st.filibuster.name) + ' since ' + fmt(st.filibuster.start) : 'None');
+      add('Budget', st.budget ? st.budget.fy + (st.budget.passed ? ', passed' : ', not yet passed') + (st.budget.attempts ? ' (' + st.budget.attempts + ' vote' + (st.budget.attempts === 1 ? '' : 's') + ')' : '') : 'First budget due June 2027');
+      add('Shutdown', st.shutdown ? 'Day ' + st.shutdown.days + ', since ' + st.shutdown.since : 'No');
+      add('Ethics inquiries', st.inquiries.length ? st.inquiries.map((q) => esc(q.name) + ' (' + q.stage + ')').join(', ') : 'None');
+      add('Lame ducks', st.seats.filter((x) => x.senator && x.senator.lameDuck).length + ' (shown faded)');
+      if (st.dissolved) add('Dissolved', 'Snap election on ' + st.snapElection);
     } else {
       add('Founding election', st.startDate);
       add('First sitting', st.firstSitting);
@@ -298,7 +314,7 @@
     $('bills').innerHTML = bills.length
       ? '<thead><tr><th class="n">No.</th><th>Bill</th><th>Sponsor</th><th>Stage</th></tr></thead><tbody>' + bills.map((b) =>
         '<tr><td class="n">' + b.no + '</td><td>' + esc(b.title) + '</td><td>' + esc(b.sponsorName) + '</td><td>' +
-        (b.stage === 'committee' ? 'Committee, reports ' + new Date(b.due).toISOString().slice(0, 10) : 'Awaiting a vote') + '</td></tr>').join('') + '</tbody>'
+        (b.kind === 'budget' ? 'Budget, ' + (b.result ? 'defeated at last vote' : 'awaiting its first vote') : b.stage === 'committee' ? 'Committee, reports ' + new Date(b.due).toISOString().slice(0, 10) : 'Awaiting a vote') + '</td></tr>').join('') + '</tbody>'
       : '<tbody><tr><td class="status">No bills are before the Senate at this moment.</td></tr></tbody>';
 
     const span = Math.max(1, +$('span').value || 60) * DAY;

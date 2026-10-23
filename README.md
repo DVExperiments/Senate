@@ -32,13 +32,25 @@ Independents (usually one or two) each have a pet policy and trade their vote fo
 
 **Public mood** drifts over weeks and months, voters tire of whichever party is largest, and air-quality concern pushes support towards Verdant. Air-quality concern is a **stub** until the Ecosystem exists; it will then read yesterday's smog (a declared era change).
 
-**Daily rhythm (UTC).** 00:00 new laws take effect. 09:00 news (scandals, retirements, defections on the 15th). 09:30 Monday leadership challenges. 10:00 Monday poll. 19:00 sitting opens. 19:20 committee reports. 19:30 introductions. 22:00 votes, six minutes apart. No sitting on the 1st (Grand Prix day) or on election days.
+**Daily rhythm (UTC).** 00:00 new laws take effect (and on 1 July, a shutdown begins if there is no budget). 09:00 news (scandals, inquiries, retirements, defections on the 15th, shutdown days, dissolutions). 09:30 Monday leadership challenges. 10:00 Monday poll. 11:00 election results. 19:00 sitting opens. 19:15 budget presented (June). 19:20 committee reports. 19:30 introductions. 21:30 ethics votes. 21:50 budget vote. 22:00 ordinary votes, six minutes apart. No sitting on the 1st (Grand Prix day), on election days, or while the Senate is dissolved.
 
 **Bills** go through introduction, committee (2 to 5 days, where some die or are amended), then a vote. Emergency bills skip committee when air-quality concern is high. On Thursdays a member's bill is drawn from the tin. A tie fails: the Presiding Officer, Neutral Grey, always votes for the status quo.
 
 **Votes.** Senators follow their party unless they disagree strongly and are disloyal enough to rebel; rebels become less loyal and may later defect. Before a vote that would fail, a persuadable bloc may switch in exchange for an amendment (Legacy Mode usually demands that some earlier change be undone). A strongly opposed senator may filibuster for up to about 13 hours; 30 supporters can end it after two.
 
-**By-elections** fill seats vacated by resignation or ill health, four Saturdays later, unless the seat is due for election within 70 days.
+**By-elections** fill seats vacated by resignation, ill health or expulsion, four Saturdays later, unless the seat is due for election within 70 days.
+
+**Term limits and lame ducks.** A senator may win at most four terms. Term-limited senators announce their farewell 21 days before their final election. Senators in their last term, or retiring, are lame ducks: party loyalty has half its usual hold, so they rebel more often.
+
+**The budget.** Each year the Majority Leader presents an Appropriations Bill from 2 June, carrying the largest party's priority policy. It is voted on 16, 20, 24, 28 and 30 June. Opposition parties start out reluctant; each defeat softens the bill and builds pressure, and side deals are rare.
+
+**Shutdowns.** If no budget has passed by 1 July, the Senate shuts down: it meets only for daily budget votes (and ethics votes), the chamber lights dim, support falls (most for the largest party), and pressure builds a little each day. Most shutdowns last a few days; occasionally one drags on for weeks.
+
+**Ethics inquiries.** About 60% of serious scandals become inquiries: a complaint, an inquiry opened, a day of testimony, then a report that clears the senator or recommends censure (simple majority) or expulsion (32 votes, two-thirds of the chamber). Senators sometimes resign before testifying or after being censured. Expulsion is rare.
+
+**Dissolution and snap elections.** If the Senate deadlocks, with a shutdown reaching 7 days or three tied votes within six weeks, the Presiding Officer may dissolve it. All bills lapse, there are no sittings, and all 48 seats are contested at a snap election four Saturdays later. Senators then draw lots again for staggered terms. A dissolution cannot happen within 30 days after an election, within 60 days before one, or within two years of the last dissolution.
+
+**Names.** When a generated name is already taken, the newcomer gets a numeral (Hex Halftone II).
 
 ## Laws and guardrails
 
@@ -86,7 +98,7 @@ To test locally instead, run `python3 -m http.server` in the folder and open `ht
 
 | Function | Returns |
 | --- | --- |
-| `stateAt(time)` | Seats, senators, leaders, support, laws in effect, bills, filibuster, next election |
+| `stateAt(time)` | Seats, senators (with lame-duck flags), leaders, support, laws in effect, bills, filibuster, budget, shutdown, dissolution, inquiries, next election |
 | `eventsBetween(from, to)` | Events in the shared format |
 | `lawsAt(time)` | Every law key resolved, defaults included |
 | `styleVars(time, scheme)` | CSS variable values for `light` or `dark`, guardrails applied |

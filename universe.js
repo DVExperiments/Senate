@@ -12,11 +12,14 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '0.1.0'; // becomes 1.0.0 at the founding election; after that, history is fixed
+  const VERSION = '0.2.0'; // becomes 1.0.0 at the founding election; after that, history is fixed
   const DAY = 86400000, H = 3600000, MIN = 60000;
   const START = Date.UTC(2026, 10, 28); // founding election, Saturday 28 November 2026
   const FIRST_SITTING = Date.UTC(2026, 11, 3); // Glacial's first anniversary
   const CLOTURE = 30; // votes needed to end a filibuster
+  const TWO_THIRDS = 32; // votes needed to expel a senator
+  const TERM_LIMIT = 4; // terms a senator may win
+  const DISSOLVE_AFTER_SHUTDOWN = 7; // days of shutdown that can trigger a dissolution
   const CHECKPOINT_EVERY = 32; // days
 
   // ---------------------------------------------------------------- shared RNG
@@ -198,13 +201,15 @@
       support: { B: 0.36, V: 0.32, L: 0.32 }, mood: { B: 0, V: 0, L: 0 }, fatigue: 0, leaderSupport: { B: 0, V: 0, L: 0 }, seatLoss: { B: 0, V: 0, L: 0 },
       leaders: { B: null, V: null, L: null }, majority: null,
       laws: {}, pending: [], bills: {}, filibuster: null, byelections: [], deals: {},
-      concern: 0.4, lastEmergency: 0, lastPoll: null, opened: false, founded: false
+      concern: 0.4, lastEmergency: 0, lastPoll: null, opened: false, founded: false,
+      budget: null, shutdown: null, snap: null, lastDissolution: 0, lastElection: 0, ties: [], inquiries: []
     };
   }
   function makePerson(r, st, party, district) {
-    let name;
-    do { name = pick(r, FIRST) + ' ' + pick(r, LAST); } while (st.names[name]);
-    st.names[name] = 1;
+    // Three tries for a fresh name; after that the newcomer takes a numeral (Hex Halftone II).
+    let name, tries = 0;
+    do { name = pick(r, FIRST) + ' ' + pick(r, LAST); tries++; } while (st.names[name] && tries < 3);
+    if (st.names[name]) { st.names[name]++; name += ' ' + roman(st.names[name]); } else st.names[name] = 1;
     const P = PARTIES[party];
     const env = clamp((P ? P.env : r() * 2 - 1) + (r() - 0.5) * 0.7, -1, 1);
     const aes = clamp((P ? P.aes : r() * 2 - 1) + (r() - 0.5) * 0.7, -1, 1);
@@ -215,6 +220,12 @@
       pet: party === 'I' ? pet : null, district, seat: null, since: null, termsWon: 0, status: 'candidate', retiring: false,
       stats: { sponsored: 0, passed: 0, rebellions: 0, missed: 0, filibusters: 0, longestFilibusterMs: 0, scandals: 0 }
     };
+  }
+  function roman(n) {
+    const v = [[10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']];
+    let out = '';
+    for (const [k, sym] of v) while (n >= k) { out += sym; n -= k; }
+    return out;
   }
   function counts(st) {
     const c = { B: 0, V: 0, L: 0, I: 0, vacant: 0 };
@@ -233,6 +244,8 @@
     for (const p of PARTY_IDS) st.support[p] = rd(st.support[p] / sum);
   }
   const serving = (st) => st.seats.filter((s) => s.senator).map((s) => st.people[s.senator]);
+  /** In their final term, or retiring: party discipline no longer has much hold on them. */
+  const lameDuck = (s) => s.termsWon >= TERM_LIMIT || s.retiring;
 
   // ---------------------------------------------------------------- engine helpers
   function at(ctx, t, fn) {
@@ -291,7 +304,10 @@
     seat.senator = null;
     departed(ctx, t, person, reason);
     const dist = st.districts[seat.district].name;
-    if (seat.termEnds && seat.termEnds - dayOf(t) < 70 * DAY) {
+    if (st.snap) {
+      emit(ctx, t, 'seat.vacant', 2, 'vacant:' + seatIdx + ':' + ymd(t), { seat: seatIdx, district: dist },
+        'The ' + dist + ' seat will remain vacant until the snap election');
+    } else if (seat.termEnds && seat.termEnds - dayOf(t) < 70 * DAY) {
       emit(ctx, t, 'seat.vacant', 2, 'vacant:' + seatIdx + ':' + ymd(t), { seat: seatIdx, district: dist },
         'The ' + dist + ' seat will remain vacant until the general election');
     } else {
@@ -311,7 +327,7 @@
   function contest(ctx, r, seatIdx, day) {
     const st = ctx.st, seat = st.seats[seatIdx], dist = st.districts[seat.district];
     const inc = seat.senator ? st.people[seat.senator] : null;
-    const incRuns = inc && !inc.retiring;
+    const incRuns = inc && !inc.retiring && inc.termsWon < TERM_LIMIT;
     const cands = [];
     for (const p of PARTY_IDS) cands.push(incRuns && inc.party === p ? inc : makePerson(r, st, p, seat.district));
     const indRoll = r();
@@ -386,7 +402,7 @@
   function seatWinner(ctx, t, res, termEnds) {
     const st = ctx.st, seat = st.seats[res.seat], win = res.winnerPerson;
     const old = seat.senator ? st.people[seat.senator] : null;
-    if (old && old.id !== win.id) departed(ctx, t, old, old.retiring ? 'retired' : 'defeated');
+    if (old && old.id !== win.id) departed(ctx, t, old, old.termsWon >= TERM_LIMIT ? 'term-limited' : old.retiring ? 'retired' : 'defeated');
     if (old && old.id === win.id) win.retiring = false;
     if (!st.people[win.id]) st.people[win.id] = win;
     win.status = 'serving';
@@ -406,28 +422,44 @@
     const close = res.margin < 0.03 ? ' by a margin of ' + rd(res.margin * 100) + '%' : '';
     return party + ' holds ' + res.district + close + prefs + (by ? ' in a by-election' : '');
   }
-  function generalElection(ctx, t) {
-    const st = ctx.st, day = dayOf(t), r = seeded('election', day), founding = !st.founded;
+  function generalElection(ctx, t, snap) {
+    const st = ctx.st, day = dayOf(t), r = seeded(snap ? 'snap' : 'election', day), founding = !st.founded;
     const idxs = [];
-    st.seats.forEach((s, i) => { if (founding || s.termEnds === day) idxs.push(i); });
+    st.seats.forEach((s, i) => { if (founding || snap || s.termEnds === day) idxs.push(i); });
     if (!idxs.length) return;
     const before = counts(st);
     const results = idxs.map((i) => contest(ctx, r, i, day));
-    const termEnds = founding ? null : electionsAfter(day, 3)[2];
+    // after a snap election, senators draw lots again for staggered terms
+    const ends = {};
+    if (snap) {
+      // if a scheduled election is less than 90 days away, the shortest terms run to the one after it
+      const lr = seeded('snaplots', day), next = electionsAfter(day + 90 * DAY, 3);
+      for (let d = 0; d < DISTRICT_NAMES.length; d++) {
+        const order = [0, 1, 2];
+        for (let i = 2; i > 0; i--) {
+          const j = Math.floor(lr() * (i + 1));
+          const tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+        }
+        for (let k = 0; k < 3; k++) { st.seats[d * 3 + k].cls = order[k]; ends[d * 3 + k] = next[order[k]]; }
+      }
+    }
+    const regular = founding ? null : electionsAfter(day, 3)[2];
     let flips = 0;
     for (const res of results) {
       const flip = !founding && res.prevParty && res.prevParty !== res.winnerPerson.party;
       if (flip) flips++;
-      seatWinner(ctx, t, res, termEnds);
+      seatWinner(ctx, t, res, snap ? ends[res.seat] : regular);
       const imp = founding ? 2 : flip ? 4 : res.margin < 0.03 ? 3 : 2;
       emit(ctx, t, 'election.result', imp, 'election-' + ymd(day) + ':seat-' + res.seat,
         { seat: res.seat, district: res.district, winner: res.winnerPerson.id, name: res.winnerPerson.name, party: res.winnerPerson.party,
-          previous: res.prevParty, margin: res.margin, onPreferences: res.onPreferences, rounds: res.rounds.length },
+          previous: res.prevParty, margin: res.margin, onPreferences: res.onPreferences, rounds: res.rounds.length, snap: !!snap },
         resultHeadline(res, founding, false));
     }
     st.founded = true;
     st.byelections = st.byelections.filter((b) => idxs.indexOf(b.seat) < 0);
     st.deals = {};
+    st.lastElection = day;
+    if (snap) { st.snap = null; st.lastDissolution = day; }
     const after = counts(st);
     for (const p of PARTY_IDS) {
       st.support[p] += (after[p] - before[p]) * 0.002;
@@ -437,12 +469,12 @@
     let top = 'B';
     for (const p of PARTY_IDS) if (after[p] > after[top]) top = p;
     const hung = after[top] < 25;
-    const head = founding
-      ? 'Founding election returns the first Pixel Senate: ' + compositionText(after)
-      : (hung ? 'No party holds a majority after the election: ' : PARTIES[top].short + ' holds a majority after the election: ') + compositionText(after);
+    const lead = founding ? 'Founding election returns the first Pixel Senate: '
+      : snap ? (hung ? 'Snap election leaves the Senate without a majority: ' : 'Snap election hands ' + PARTIES[top].short + ' a majority: ')
+        : hung ? 'No party holds a majority after the election: ' : PARTIES[top].short + ' holds a majority after the election: ';
     emit(ctx, t, 'election.summary', 5, 'election-' + ymd(day) + ':summary',
-      { composition: after, before, flips, hung, founding, contested: idxs.length }, head);
-    ctx.arch.elections.push({ ms: t, kind: founding ? 'founding' : 'general', composition: after, results: results.map(slimResult) });
+      { composition: after, before, flips, hung, founding, snap: !!snap, contested: idxs.length }, lead + compositionText(after));
+    ctx.arch.elections.push({ ms: t, kind: founding ? 'founding' : snap ? 'snap' : 'general', composition: after, results: results.map(slimResult) });
     updateMajority(ctx, t);
     if (st.opened) for (const p of PARTY_IDS) if (!st.leaders[p]) chooseLeader(ctx, t, p, 'election');
   }
@@ -473,12 +505,13 @@
   // ---------------------------------------------------------------- bills
   function partyU(b, p) {
     const P = PARTIES[p];
-    return b.env * P.env + b.aes * P.aes + b.taste[p] + (b.sponsorParty === p ? 0.25 : 0);
+    return b.env * P.env + b.aes * P.aes + b.taste[p] + (b.sponsorParty === p ? 0.25 : 0) + (b.pressure || 0);
   }
   function personU(b, s) {
     let u = b.env * s.env + b.aes * s.aes;
     if (s.party !== 'I') u += b.taste[s.party] * 0.7;
     if (b.sponsor === s.id) u += 0.4;
+    if (b.pressure) u += b.pressure * 0.8;
     if (s.pet && b.change.key === s.pet.key && b.change.delta) u += (b.change.delta > 0) === (s.pet.dir > 0) ? 0.5 : -0.5;
     return u;
   }
@@ -663,7 +696,7 @@
       if (ex.ayes + ex.blocs[p] <= ex.noes - ex.blocs[p]) continue;
       const u = partyU(b, p);
       const limit = p === 'L' ? 0.6 : 0.45;
-      if (u < -limit || dealRoll > (p === 'L' ? 0.35 : 0.2)) continue;
+      if (u < -limit || dealRoll > (b.kind === 'budget' ? 0.045 : p === 'L' ? 0.35 : 0.2)) continue;
       const rider = riderFor(st, b, p);
       b.forced[p] = 'aye';
       let what;
@@ -682,7 +715,7 @@
     for (const s of serving(st)) {
       if (s.party !== 'I' || b.forcedInd[s.id]) continue;
       if (expectedVote(b, s) !== 'N' || ex.ayes + 1 <= ex.noes - 1) continue;
-      if (personU(b, s) < -0.5 || indRoll > 0.5) continue;
+      if (personU(b, s) < -0.5 || indRoll > (b.kind === 'budget' ? 0.15 : 0.5)) continue;
       const P = POLICY[s.pet.key], cur = st.laws[s.pet.key] !== undefined ? st.laws[s.pet.key] : P.def;
       const ok = cur + s.pet.dir <= P.max && cur + s.pet.dir >= P.min && s.pet.key !== b.change.key;
       const rider = ok ? { key: s.pet.key, op: 'step', delta: s.pet.dir } : null;
@@ -711,7 +744,8 @@
       else {
         v = pos[s.party] === 'aye' ? 'A' : 'N';
         const disagree = (v === 'A' && u < -0.3) || (v === 'N' && u > 0.3);
-        if (disagree && c < (1 - s.loyalty) * 0.6 * abs(u)) {
+        const loyalty = lameDuck(s) ? s.loyalty * 0.5 : s.loyalty;
+        if (disagree && c < (1 - loyalty) * 0.6 * abs(u)) {
           v = v === 'A' ? 'N' : 'A';
           rebels.push(s.id);
           s.stats.rebellions++;
@@ -729,6 +763,8 @@
     tryConcession(ctx, t, b, r);
     const res = castVotes(ctx, t, b, r);
     const tie = res.ayes === res.noes;
+    if (tie) st.ties.push(dayOf(t));
+    if (b.kind === 'budget') return budgetDivision(ctx, t, b, res);
     const passed = res.ayes > res.noes; // a tie fails: the Presiding Officer votes for the status quo
     b.result = { ayes: res.ayes, noes: res.noes, absent: res.absent, tie, rebels: res.rebels, positions: res.positions };
     b.votes = res.votes;
@@ -756,8 +792,8 @@
         res.rebels.length + ' senators defy their parties on the ' + b.title);
     } else if (res.rebels.length === 1) {
       const s = st.people[res.rebels[0]];
-      emit(ctx, t, 'senate.rebellion', 2, b.id + ':rebellion', { bill: b.id, rebels: res.rebels },
-        'Senator ' + s.name + ' crosses the floor on the ' + b.title);
+      emit(ctx, t, 'senate.rebellion', lameDuck(s) ? 3 : 2, b.id + ':rebellion', { bill: b.id, rebels: res.rebels, lameDuck: lameDuck(s) },
+        (lameDuck(s) ? 'Lame-duck Senator ' : 'Senator ') + s.name + ' crosses the floor on the ' + b.title);
     }
     finish(ctx, t, b);
   }
@@ -765,6 +801,238 @@
     delete ctx.st.bills[b.id];
     b.finished = t;
     ctx.arch.bills.push(b);
+  }
+
+  // ---------------------------------------------------------------- the budget and shutdowns
+  // Each year the Senate must pass an Appropriations Bill by 30 June. If it has not, the Senate shuts down on
+  // 1 July: no other business until the budget passes, and the chamber's lights are dimmed.
+  const PRIORITIES = { B: ['policy.constructionBudget', 'policy.coalPlants'], V: ['policy.solarSubsidy', 'policy.windFarms'], L: ['policy.parks', 'policy.wildlifeZones'] };
+  const fyLabel = (fy) => fy + '/' + pad((fy + 1) % 100);
+  function budgetFY(day) { return new Date(day).getUTCFullYear(); }
+  function needsBudgetBill(st, day) {
+    const d = new Date(day), y = d.getUTCFullYear();
+    if (day < Date.UTC(y, 5, 2)) return false;
+    if (!st.budget || st.budget.fy < y) return true;
+    return !st.budget.passed && !st.bills[st.budget.bill];
+  }
+  function introduceBudget(ctx, t, r) {
+    const st = ctx.st, day = dayOf(t), fy = budgetFY(day);
+    const a = r(), b = r(), c = r();
+    const p = st.majority || 'B', P = PARTIES[p];
+    let change = null;
+    for (const key of PRIORITIES[p]) {
+      const Q = POLICY[key], cur = st.laws[key] !== undefined ? st.laws[key] : Q.def;
+      const step = p === 'B' ? 1 : Q.green;
+      if (cur + step <= Q.max && cur + step >= Q.min) { change = { key, op: 'step', delta: step }; break; }
+    }
+    if (!change) change = { key: 'policy.parks', op: 'step', delta: 0 };
+    const leader = st.leaders[p] ? st.people[st.leaders[p]] : serving(st).filter((x) => x.party === p)[0] || serving(st)[0];
+    if (!st.budget || st.budget.fy !== fy) st.budget = { fy, passed: false, bill: null, attempts: 0 };
+    const id = 'bill-' + (++st.seq.bill);
+    const bill = {
+      id, no: st.seq.bill, title: 'Appropriations Bill ' + fyLabel(fy), kind: 'budget', sub: 'budget', change,
+      env: rd(P.env * 0.5), aes: rd(P.aes * 0.4), taste: { B: rd((a - 0.5) * 0.1), V: rd((b - 0.5) * 0.1), L: rd((c - 0.5) * 0.1) },
+      pressure: -0.05, conscience: false, members: false, sponsor: leader.id, sponsorName: leader.name, sponsorParty: leader.party === 'I' ? null : leader.party,
+      introduced: t, stage: 'floor', due: null, floorDay: day, forced: {}, forcedInd: {}, riders: [], amendments: [], fy
+    };
+    st.bills[id] = bill;
+    st.budget.bill = id;
+    leader.stats.sponsored++;
+    emit(ctx, t, 'budget.introduced', 3, id + ':introduced', { bill: id, fy: fyLabel(fy), sponsor: leader.id, priority: change },
+      'Senator ' + leader.name + ' presents the ' + bill.title + ', with ' + describeChange(change).toLowerCase() + ' as its centrepiece');
+  }
+  function budgetVoteDue(st, day) {
+    if (!st.budget || st.budget.passed || !st.bills[st.budget.bill]) return false;
+    if (st.shutdown) return true;
+    const d = new Date(day);
+    const dom = d.getUTCDate();
+    return d.getUTCMonth() === 5 && dom >= 16 && ((dom - 16) % 4 === 0 || dom === 30);
+  }
+  function budgetDivision(ctx, t, b, res) {
+    const st = ctx.st;
+    const tally = res.ayes + '\u2013' + res.noes;
+    b.result = { ayes: res.ayes, noes: res.noes, absent: res.absent, tie: res.ayes === res.noes, rebels: res.rebels, positions: res.positions };
+    b.votes = res.votes;
+    st.budget.attempts++;
+    if (res.ayes > res.noes) {
+      b.stage = 'passed';
+      b.decided = t;
+      st.budget.passed = true;
+      const changes = [b.change].concat(b.riders).filter((c) => c.delta !== 0 || c.op !== 'step');
+      st.pending.push({ bill: b.id, title: b.title, effective: dayOf(t) + DAY, changes });
+      const sponsor = st.people[b.sponsor];
+      if (sponsor) sponsor.stats.passed++;
+      if (st.shutdown) {
+        const days = Math.floor((dayOf(t) - st.shutdown.since) / DAY) + 1;
+        emit(ctx, t, 'budget.passed', 4, b.id + ':passed', { bill: b.id, ayes: res.ayes, noes: res.noes, attempts: st.budget.attempts, shutdownDays: days },
+          'The ' + b.title + ' passes ' + tally + ' at attempt ' + st.budget.attempts);
+        emit(ctx, t, 'shutdown.end', 4, 'shutdown-end:' + ymd(t), { days },
+          'The shutdown ends after ' + days + ' day' + (days === 1 ? '' : 's') + '; the chamber lights come back on');
+        st.shutdown = null;
+      } else {
+        emit(ctx, t, 'budget.passed', 3, b.id + ':passed', { bill: b.id, ayes: res.ayes, noes: res.noes, attempts: st.budget.attempts },
+          'The ' + b.title + ' passes ' + tally + (st.budget.attempts > 1 ? ' at attempt ' + st.budget.attempts : ''));
+      }
+      finish(ctx, t, b);
+      return;
+    }
+    // defeated: the government goes back to the table, softening its priorities
+    if (!st.shutdown) {
+      b.env = rd(b.env * 0.93);
+      b.aes = rd(b.aes * 0.93);
+      b.pressure = rd(b.pressure + 0.015);
+    }
+    b.forced = {};
+    b.forcedInd = {};
+    const deadline = Date.UTC(st.budget.fy, 5, 30);
+    const left = Math.floor((deadline - dayOf(t)) / DAY);
+    const tail = st.shutdown ? '; the shutdown continues' : left > 0 ? '; ' + left + ' day' + (left === 1 ? '' : 's') + ' until the money runs out' : '; the Senate faces a shutdown at midnight';
+    emit(ctx, t, 'budget.defeated', st.shutdown || left <= 0 ? 4 : 3, b.id + ':defeated-' + st.budget.attempts,
+      { bill: b.id, ayes: res.ayes, noes: res.noes, attempt: st.budget.attempts, tie: res.ayes === res.noes },
+      'The ' + b.title + ' is defeated ' + tally + (res.ayes === res.noes ? ' on the casting vote' : '') + tail);
+  }
+  function startShutdown(ctx, t) {
+    const st = ctx.st;
+    st.shutdown = { since: dayOf(t) };
+    const fy = budgetFY(t);
+    if (!st.budget || st.budget.fy !== fy) st.budget = { fy, passed: false, bill: null, attempts: 0 };
+    emit(ctx, t, 'shutdown.begin', 5, 'shutdown:' + ymd(t), { fy: fyLabel(fy) },
+      'The Senate shuts down: no Appropriations Bill for ' + fyLabel(fy) + ' has passed, and the chamber lights are dimmed');
+  }
+  function shutdownDay(ctx, t) {
+    const st = ctx.st;
+    const days = Math.floor((dayOf(t) - st.shutdown.since) / DAY) + 1;
+    if (days < 2) return;
+    for (const p of PARTY_IDS) st.support[p] -= p === st.majority ? 0.002 : 0.0007;
+    normaliseSupport(st);
+    const b = st.budget && st.bills[st.budget.bill];
+    if (b) b.pressure = rd(b.pressure + 0.007);
+    emit(ctx, t, 'shutdown.day', days % 7 === 0 ? 3 : 2, 'shutdown-day:' + ymd(t), { days },
+      'Day ' + days + ' of the shutdown');
+  }
+
+  // ---------------------------------------------------------------- ethics inquiries
+  // A serious scandal can become an inquiry: complaint, inquiry opened, testimony, report, then a vote.
+  function processInquiries(ctx, t, r) {
+    const st = ctx.st, day = dayOf(t);
+    for (const inq of st.inquiries.slice()) {
+      const a = r(), b = r();
+      const s = st.people[inq.senator];
+      if (!s || s.status !== 'serving') { st.inquiries = st.inquiries.filter((x) => x !== inq); continue; }
+      if (inq.stage === 'vote' || inq.next > day) continue;
+      const idp = 'inquiry:' + s.id + ':' + inq.opened + ':';
+      if (inq.stage === 'complaint') {
+        inq.stage = 'open';
+        inq.next = day + (7 + Math.floor(a * 7)) * DAY;
+        emit(ctx, t, 'inquiry.opened', 3, idp + 'opened', { senator: s.id, name: s.name, party: s.party },
+          'The Ethics Committee opens an inquiry into Senator ' + s.name);
+      } else if (inq.stage === 'open') {
+        if (b < 0.12) {
+          emit(ctx, t, 'senator.resigned', 4, idp + 'resigned', { senator: s.id, name: s.name, party: s.party, beforeTestimony: true },
+            'Senator ' + s.name + ' resigns rather than testify before the Ethics Committee');
+          st.inquiries = st.inquiries.filter((x) => x !== inq);
+          vacancy(ctx, t, s.seat, 'resigned');
+          continue;
+        }
+        const hours = 2 + Math.floor(a * 8);
+        inq.stage = 'testified';
+        inq.next = day + (6 + Math.floor(b * 5)) * DAY;
+        emit(ctx, t, 'inquiry.testimony', 3, idp + 'testimony', { senator: s.id, name: s.name, hours },
+          'Senator ' + s.name + ' testifies before the Ethics Committee for ' + hours + ' hours');
+      } else if (inq.stage === 'testified') {
+        const finding = a < 0.4 ? 'cleared' : a < 0.8 ? 'censure' : 'expulsion';
+        if (finding === 'cleared') {
+          s.quality = rd(clamp(s.quality * 1.1, 0, 1.15));
+          emit(ctx, t, 'inquiry.cleared', 3, idp + 'cleared', { senator: s.id, name: s.name },
+            'The Ethics Committee clears Senator ' + s.name);
+          st.inquiries = st.inquiries.filter((x) => x !== inq);
+        } else {
+          inq.stage = 'vote';
+          inq.finding = finding;
+          inq.next = day + DAY;
+          emit(ctx, t, 'inquiry.report', 4, idp + 'report', { senator: s.id, name: s.name, finding },
+            'The Ethics Committee recommends that Senator ' + s.name + ' be ' + (finding === 'censure' ? 'censured' : 'expelled from the Senate'));
+        }
+      }
+    }
+  }
+  function disciplineVote(ctx, t, inq, r) {
+    const st = ctx.st, s = st.people[inq.senator];
+    st.inquiries = st.inquiries.filter((x) => x !== inq);
+    if (!s || s.status !== 'serving') return;
+    const expel = inq.finding === 'expulsion';
+    let ayes = 0, noes = 0;
+    const votes = {};
+    for (const m of serving(st)) {
+      const c = r();
+      if (m.id === s.id) { votes[m.id] = '-'; continue; }
+      let pYes;
+      if (m.party === s.party && m.party !== 'I') pYes = (1 - m.loyalty) * 0.5 + (lameDuck(m) ? 0.15 : 0);
+      else if (m.party === 'I') pYes = 0.7;
+      else pYes = expel ? 0.88 : 0.8;
+      if (expel && m.party === s.party) pYes *= 0.7;
+      const v = c < pYes ? 'A' : 'N';
+      votes[m.id] = v;
+      if (v === 'A') ayes++; else noes++;
+    }
+    const tally = ayes + '\u2013' + noes;
+    const idp = 'inquiry:' + s.id + ':' + inq.opened + ':';
+    const resignRoll = r();
+    if (expel) {
+      if (ayes >= TWO_THIRDS) {
+        emit(ctx, t, 'senator.expelled', 5, idp + 'expelled', { senator: s.id, name: s.name, party: s.party, ayes, noes, votes },
+          'The Senate expels Senator ' + s.name + ' ' + tally);
+        vacancy(ctx, t, s.seat, 'expelled');
+      } else {
+        emit(ctx, t, 'expulsion.failed', 4, idp + 'expulsion-failed', { senator: s.id, name: s.name, ayes, noes, votes },
+          'The motion to expel Senator ' + s.name + ' fails ' + tally + ', short of the ' + TWO_THIRDS + ' votes required');
+      }
+      return;
+    }
+    if (ayes > noes) {
+      if (s.party !== 'I') { st.support[s.party] -= 0.015; normaliseSupport(st); }
+      s.loyalty = rd(clamp(s.loyalty - 0.1, 0, 1));
+      emit(ctx, t, 'senator.censured', 4, idp + 'censured', { senator: s.id, name: s.name, party: s.party, ayes, noes, votes },
+        'The Senate censures Senator ' + s.name + ' ' + tally);
+      if (resignRoll < 0.25) {
+        emit(ctx, t, 'senator.resigned', 4, idp + 'resigned', { senator: s.id, name: s.name, party: s.party, afterCensure: true },
+          'Senator ' + s.name + ' resigns hours after being censured');
+        vacancy(ctx, t, s.seat, 'resigned');
+      }
+    } else {
+      emit(ctx, t, 'censure.failed', 3, idp + 'censure-failed', { senator: s.id, name: s.name, ayes, noes, votes },
+        'The motion to censure Senator ' + s.name + ' fails ' + tally);
+    }
+  }
+
+  // ---------------------------------------------------------------- dissolution
+  // A deadlocked Senate (a long shutdown, or three tied votes within 30 days) can be dissolved by the
+  // Presiding Officer. Every seat is then contested at a snap election four weeks later.
+  function maybeDissolve(ctx, t, r) {
+    const st = ctx.st, day = dayOf(t);
+    const roll = r();
+    st.ties = st.ties.filter((d) => day - d <= 45 * DAY);
+    if (!st.opened || st.snap) return;
+    if (st.lastDissolution && day - st.lastDissolution < 730 * DAY) return;
+    if (electionsAfter(day - 1, 1)[0] - day <= 60 * DAY || day - st.lastElection < 30 * DAY) return;
+    const shutdownDays = st.shutdown ? Math.floor((day - st.shutdown.since) / DAY) + 1 : 0;
+    const longShutdown = shutdownDays >= DISSOLVE_AFTER_SHUTDOWN;
+    const tied = st.ties.length >= 3;
+    if (!(longShutdown || tied) || roll > 0.5) return;
+    const snapDay = saturdayOnOrAfter(t + 28 * DAY);
+    st.snap = { day: snapDay, called: day, reason: longShutdown ? 'shutdown' : 'ties' };
+    let lapsed = 0;
+    for (const id of Object.keys(st.bills)) {
+      const b = st.bills[id];
+      b.stage = 'lapsed';
+      finish(ctx, t, b);
+      lapsed++;
+    }
+    st.byelections = [];
+    st.ties = [];
+    const why = longShutdown ? 'a ' + shutdownDays + '-day shutdown' : 'three tied votes in six weeks';
+    emit(ctx, t, 'senate.dissolved', 5, 'dissolution:' + ymd(day), { reason: st.snap.reason, snapElection: ymd(snapDay), lapsed },
+      PRESIDING_OFFICER.title + ' ' + PRESIDING_OFFICER.name + ' dissolves the Senate after ' + why + '; all 48 seats will be contested on ' + ymd(snapDay));
   }
 
   // ---------------------------------------------------------------- filibusters
@@ -874,12 +1142,14 @@
         'Complaints about air quality flood Senate offices');
     }
     if (!st.founded) return;
+    processInquiries(ctx, t, r);
+    if (st.shutdown) shutdownDay(ctx, t);
     // senators: scandals and health retirements
     for (let i = 0; i < st.seats.length; i++) {
       const seat = st.seats[i];
       if (!seat.senator) continue;
       const s = st.people[seat.senator];
-      const x = r(), y = r();
+      const x = r(), y = r(), z = r();
       if (x < 0.00012 * (0.5 + s.scandalRisk)) {
         s.stats.scandals++;
         const sev = y < 0.55 ? 'minor' : y < 0.9 ? 'major' : 'resign';
@@ -888,8 +1158,11 @@
         const head = sev === 'minor' ? 'Senator ' + s.name + ' apologises after an expenses irregularity'
           : sev === 'major' ? 'Senator ' + s.name + ' faces calls to resign over undeclared interests in a pixel-coal concern'
             : 'Senator ' + s.name + ' resigns in disgrace';
+        const inquiry = sev === 'major' && z < 0.6 && !st.inquiries.some((q) => q.senator === s.id);
         emit(ctx, t, sev === 'resign' ? 'senator.resigned' : 'senator.scandal', sev === 'minor' ? 2 : sev === 'major' ? 3 : 4,
-          'scandal:' + s.id + ':' + ymd(day), { senator: s.id, name: s.name, party: s.party, severity: sev }, head);
+          'scandal:' + s.id + ':' + ymd(day), { senator: s.id, name: s.name, party: s.party, severity: sev, inquiry },
+          inquiry ? head + '; an ethics complaint is lodged' : head);
+        if (inquiry) st.inquiries.push({ senator: s.id, stage: 'complaint', opened: ymd(day), next: day + (3 + Math.floor(z * 6)) * DAY });
         if (sev === 'resign') vacancy(ctx, t, i, 'resigned');
       } else if (x > 1 - 0.00004 && st.opened) {
         emit(ctx, t, 'senator.retired', 3, 'health:' + s.id + ':' + ymd(day), { senator: s.id, name: s.name, party: s.party },
@@ -933,7 +1206,12 @@
       for (const seat of st.seats) {
         if (seat.termEnds !== next || !seat.senator) continue;
         const s = st.people[seat.senator];
-        if (r() < clamp(0.05 + 0.12 * (s.termsWon - 1), 0.05, 0.5)) {
+        const roll = r();
+        if (s.termsWon >= TERM_LIMIT) {
+          s.retiring = true;
+          emit(ctx, t, 'senator.term_limited', 3, 'term-limited:' + s.id + ':' + ymd(next), { senator: s.id, name: s.name, party: s.party, terms: s.termsWon },
+            'Term-limited after ' + s.termsWon + ' terms, Senator ' + s.name + ' prepares to leave the Senate');
+        } else if (roll < clamp(0.05 + 0.12 * (s.termsWon - 1), 0.05, 0.5)) {
           s.retiring = true;
           emit(ctx, t, 'senator.retiring', 2, 'retiring:' + s.id + ':' + ymd(next), { senator: s.id, name: s.name, party: s.party },
             'Senator ' + s.name + ' will not seek re-election in ' + st.districts[seat.district].name);
@@ -960,6 +1238,7 @@
             : PARTIES[p].short + ' recommends ' + PARTIES[deals[p]].short + ' as its second preference');
       }
     }
+    maybeDissolve(ctx, t, r);
   }
   function leadership(ctx, t) {
     const st = ctx.st, r = seeded('leaders', dayOf(t));
@@ -1066,7 +1345,10 @@
   function sitting(ctx, day) {
     const st = ctx.st;
     if (!st.opened && !at(ctx, day + 19 * H, (t) => openSenate(ctx, t))) return;
-    const rb = seeded('bills', day), rv = seeded('votes', day);
+    if (st.snap) return; // dissolved: no sittings until the snap election
+    const rb = seeded('bills', day), rv = seeded('votes', day), rd2 = seeded('discipline', day);
+    if (needsBudgetBill(st, day) && !at(ctx, day + 19 * H + 15 * MIN, (t) => introduceBudget(ctx, t, rb))) return;
+    if (st.shutdown) return shutdownSitting(ctx, day, rv, rd2);
     if (!at(ctx, day + 19 * H + 20 * MIN, (t) => committeeReports(ctx, t, rb))) return;
     if (new Date(day).getUTCDate() === 3 && !at(ctx, day + 19 * H + 25 * MIN, (t) => glacialResolution(ctx, t))) return;
     // emergency procedure
@@ -1094,9 +1376,11 @@
         if (b) introduce(ctx, t, b, 2 + Math.floor(rb() * 4));
       })) return;
     }
-    // divisions from 22:00, six minutes apart
+    // ethics votes, then the budget, then ordinary divisions from 22:00, six minutes apart
     if (st.filibuster) return; // the floor is still held
-    const ready = Object.keys(st.bills).map((k) => st.bills[k]).filter((b) => b.stage === 'floor' && b.floorDay <= day)
+    if (!disciplineVotes(ctx, day, rd2)) return;
+    if (budgetVoteDue(st, day) && !at(ctx, day + 21 * H + 50 * MIN, (t) => divide(ctx, t, st.bills[st.budget.bill], rv))) return;
+    const ready = Object.keys(st.bills).map((k) => st.bills[k]).filter((b) => b.kind !== 'budget' && b.stage === 'floor' && b.floorDay <= day)
       .sort((a, b) => a.no - b.no);
     let slot = day + 22 * H;
     for (let i = 0; i < ready.length; i++) {
@@ -1122,15 +1406,37 @@
     }
   }
 
+  function disciplineVotes(ctx, day, r) {
+    const st = ctx.st;
+    const due = st.inquiries.filter((q) => q.stage === 'vote' && q.next <= day);
+    for (let k = 0; k < due.length; k++) {
+      if (!at(ctx, day + 21 * H + (30 + k * 4) * MIN, (t) => disciplineVote(ctx, t, due[k], r))) return false;
+    }
+    return true;
+  }
+  function shutdownSitting(ctx, day, rv, rd2) {
+    // during a shutdown the Senate meets only to deal with the budget (and any pending ethics votes)
+    const st = ctx.st;
+    if (!disciplineVotes(ctx, day, rd2)) return;
+    if (budgetVoteDue(st, day)) at(ctx, day + 21 * H + 50 * MIN, (t) => divide(ctx, t, st.bills[st.budget.bill], rv));
+  }
+
   function runDay(ctx, day) {
     const st = ctx.st;
     const dow = new Date(day).getUTCDay();
-    if (!at(ctx, day, (t) => { applyPending(ctx, t); if (st.founded) drift(ctx, t); })) return;
+    const date = new Date(day);
+    const july1 = date.getUTCMonth() === 6 && date.getUTCDate() === 1;
+    if (!at(ctx, day, (t) => {
+      applyPending(ctx, t);
+      if (st.founded) drift(ctx, t);
+      if (july1 && st.opened && !st.shutdown && !(st.budget && st.budget.fy === date.getUTCFullYear() && st.budget.passed)) startShutdown(ctx, t);
+    })) return;
     continueFilibuster(ctx, day);
     if (!at(ctx, day + 9 * H, (t) => news(ctx, t))) return;
     if (dow === 1 && st.opened && !at(ctx, day + 9 * H + 30 * MIN, (t) => leadership(ctx, t))) return;
     if (dow === 1 && st.founded && !at(ctx, day + 10 * H, (t) => poll(ctx, t))) return;
-    if (isGeneralElection(day) && !at(ctx, day + 11 * H, (t) => generalElection(ctx, t))) return;
+    if (isGeneralElection(day) && !at(ctx, day + 11 * H, (t) => generalElection(ctx, t, false))) return;
+    if (st.snap && st.snap.day === day && !at(ctx, day + 11 * H, (t) => generalElection(ctx, t, true))) return;
     const bys = st.byelections.filter((b) => b.day === day).map((b) => b.seat).sort((a, b) => a - b);
     for (const seatIdx of bys) if (!at(ctx, day + 11 * H, (t) => byElection(ctx, t, seatIdx))) return;
     if (isSitting(day)) sitting(ctx, day);
@@ -1180,7 +1486,7 @@
       const st = upTo(time).st;
       const c = counts(st);
       const pub = (s) => s && { id: s.id, name: s.name, party: s.party, env: s.env, aes: s.aes, loyalty: s.loyalty,
-        ambition: s.ambition, termsWon: s.termsWon, since: s.since ? ymd(s.since) : null, stats: s.stats, pet: s.pet };
+        ambition: s.ambition, termsWon: s.termsWon, lameDuck: lameDuck(s), since: s.since ? ymd(s.since) : null, stats: s.stats, pet: s.pet };
       const leader = (p) => (st.leaders[p] ? pub(st.people[st.leaders[p]]) : null);
       return {
         time, started: true, opened: st.opened, version: VERSION,
@@ -1194,8 +1500,13 @@
         bills: Object.keys(st.bills).map((k) => st.bills[k]),
         filibuster: st.filibuster && st.filibuster.start <= time ? st.filibuster : null,
         byelections: st.byelections.map((b) => ({ date: ymd(b.day), seat: b.seat, district: st.districts[st.seats[b.seat].district].name })),
-        nextElection: ymd(isGeneralElection(dayOf(time)) && time < dayOf(time) + 11 * H ? dayOf(time) : electionsAfter(dayOf(time), 1)[0]),
+        nextElection: st.snap ? ymd(st.snap.day) : ymd(isGeneralElection(dayOf(time)) && time < dayOf(time) + 11 * H ? dayOf(time) : electionsAfter(dayOf(time), 1)[0]),
         presidingOfficer: PRESIDING_OFFICER,
+        budget: st.budget ? { fy: fyLabel(st.budget.fy), passed: st.budget.passed, attempts: st.budget.attempts } : null,
+        shutdown: st.shutdown ? { since: ymd(st.shutdown.since), days: Math.floor((dayOf(time) - st.shutdown.since) / DAY) + 1 } : null,
+        dissolved: !!st.snap, snapElection: st.snap ? ymd(st.snap.day) : null,
+        inquiries: st.inquiries.map((q) => ({ senator: q.senator, name: st.people[q.senator] ? st.people[q.senator].name : null, stage: q.stage, finding: q.finding || null })),
+        termLimit: TERM_LIMIT,
         people: st.people
       };
     }
