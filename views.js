@@ -34,7 +34,7 @@
     title: 'Chamber',
     render(model) {
       return '<section class="page-head" style="padding-bottom:16px"><p class="kicker" id="kicker">\u00a0</p><h1 class="status" id="status">\u00a0</h1></section>' +
-        '<figure class="screen"><canvas id="chamber" width="960" height="430" role="img" aria-label="The Senate chamber, one pixel per senator"></canvas>' +
+        '<figure class="screen"><canvas id="chamber" width="960" height="430" role="img" aria-label="The Senate chamber, one pixel per senator. Select a senator to see their record."></canvas>' +
         '<figcaption class="screen-bar"><span id="mode"></span><span class="clock" id="clock"></span></figcaption></figure>' +
         '<div class="ticker" aria-hidden="true"><div class="ticker-track" id="ticker"></div></div>' +
         '<div class="live-body"><section class="log"><h2>On the floor</h2><ul class="feed" id="floorfeed"></ul></section>' +
@@ -42,7 +42,18 @@
         '<h2>Coming up</h2><dl class="facts" id="upcoming" style="grid-template-columns:1fr 1fr"></dl></aside></div>';
     },
     mount(model) {
-      const chamber = new F.Chamber(document.getElementById('chamber'));
+      const canvas = document.getElementById('chamber');
+      const chamber = new F.Chamber(canvas);
+      canvas.addEventListener('pointermove', (ev) => {
+        const h = chamber.hitTest(ev.clientX, ev.clientY);
+        chamber.hover = h ? h.id : null;
+        canvas.style.cursor = h ? 'pointer' : 'default';
+      });
+      canvas.addEventListener('pointerleave', () => { chamber.hover = null; canvas.style.cursor = 'default'; });
+      canvas.addEventListener('click', (ev) => {
+        const h = chamber.hitTest(ev.clientX, ev.clientY);
+        if (h) location.hash = '#/senator/' + h.id;
+      });
       const shown = new Set();
       let base = null, lastBase = 0, raf = 0, timer = 0, firstFeed = true;
       const st = () => M.build().st;

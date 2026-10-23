@@ -235,8 +235,19 @@
     }
 
     this.tally = null;
+    this.hover = null;
+    let hits = [];
+    /** The senator under a pointer position, if any. */
+    this.hitTest = function (clientX, clientY) {
+      const r = canvas.getBoundingClientRect();
+      const x = (clientX - r.left) * W / r.width, y = (clientY - r.top) * HGT / r.height;
+      let best = null, bd = 13 * 13;
+      for (const h of hits) { const d = (h.x - x) * (h.x - x) + (h.y - y) * (h.y - y); if (d < bd) { bd = d; best = h; } }
+      return best;
+    };
     this.draw = function (f) {
       const t = performance.now();
+      hits = [];
       if (!f.division && !f.result) this.tally = null;
       ctx.clearRect(0, 0, W, HGT);
       // floor and rostrum
@@ -264,6 +275,7 @@
           continue;
         }
         const sen = s.senator;
+        hits.push({ x, y, id: sen.id, name: sen.name, party: sen.party, district: s.district });
         let alpha = (sen.lameDuck ? 0.55 : 1) * dim;
         let size = 10, outline = null;
         const showVotes = div || res;
@@ -293,6 +305,24 @@
         ctx.fillRect(x - size / 2, y - size / 2, size, size);
         ctx.globalAlpha = 1;
         if (outline) { ctx.strokeStyle = outline; ctx.lineWidth = 1.5; ctx.strokeRect(x - size / 2 - 2, y - size / 2 - 2, size + 4, size + 4); ctx.lineWidth = 1; }
+      }
+      if (this.hover) {
+        const h = hits.find((x) => x.id === this.hover);
+        if (h) {
+          ctx.strokeStyle = '#FFFFFF';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(h.x - 9, h.y - 9, 18, 18);
+          ctx.lineWidth = 1;
+          const label = h.name + ', ' + M.PNAME[h.party];
+          ctx.font = '600 14px ' + font();
+          const w = ctx.measureText(label).width + 14;
+          const lx = Math.max(4, Math.min(W - w - 4, h.x - w / 2)), ly = h.y - 40;
+          ctx.fillStyle = 'rgba(10,17,21,0.92)';
+          ctx.fillRect(lx, ly, w, 24);
+          ctx.fillStyle = '#E1E9EC';
+          ctx.textAlign = 'left';
+          ctx.fillText(label, lx + 7, ly + 17);
+        }
       }
       for (const w of whispers) if (w.until > t && !div) {
         const a = pos[w.i], b = pos[w.i + 1];
