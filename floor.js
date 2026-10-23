@@ -49,7 +49,8 @@
     if (st.dissolved) return { mode: 'dissolved' };
     const day = M.dayOf(now);
     const fil = st.filibuster;
-    const live = (S.calendar.isSitting(day) && now >= day + 19 * H && now < day + 23 * H + 30 * MIN) || !!fil;
+    const adjourned = S.calendar.isSitting(day) && now >= day + 19 * H ? S.calendar.adjourned(day) : null;
+    const live = (S.calendar.isSitting(day) && !adjourned && now >= day + 19 * H && now < day + 23 * H + 30 * MIN) || !!fil;
     if (live) {
       const d = fil ? M.dayOf(fil.start) : day;
       return { mode: 'live', day: d, events: windowEvents(model, d).filter((e) => e.ms <= now), paper: orderPaper(d), speed: 1 };
@@ -66,7 +67,7 @@
     const end = Math.max(ev[ev.length - 1].ms + 8 * MIN, d + 22 * H + 30 * MIN);
     let nextSitting = day + 19 * H;
     for (let k = 0; k < 40 && (nextSitting <= now || !S.calendar.isSitting(M.dayOf(nextSitting))); k++) nextSitting = M.dayOf(nextSitting) + DAY + 19 * H;
-    return { mode: 'replay', day: d, all: ev, start, end, paper: orderPaper(d), speed: REPLAY_SPEED, nextSitting };
+    return { mode: 'replay', day: d, all: ev, start, end, paper: orderPaper(d), speed: REPLAY_SPEED, nextSitting, adjourned };
   };
   F.simNow = function (base, now) {
     if (base.mode !== 'replay') return now;

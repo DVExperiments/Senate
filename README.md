@@ -8,7 +8,7 @@ Live at `https://dvexperiments.github.io/Senate/`. The test bench is at `/Senate
 
 | File | What it does |
 | --- | --- |
-| `universe.js` | The whole simulation. No DOM code; any site can load it. |
+| `universe.js` | The whole simulation. No DOM code; any site can load it after the Weather Bureau's `universe.js`. |
 | `index.html` | The site: chamber, senators, bills, elections, laws, parties, records. |
 | `css/senate.css` | Styles, built on Glacial's. |
 | `js/model.js` | Reads the simulation and derives careers, voting records, allies and records. |
@@ -63,6 +63,8 @@ Independents (usually one or two) each have a pet policy and trade their vote fo
 
 **Dissolution and snap elections.** If the Senate deadlocks, with a shutdown reaching 7 days or three tied votes within six weeks, the Presiding Officer may dissolve it. All bills lapse, there are no sittings, and all 48 seats are contested at a snap election four Saturdays later. Senators then draw lots again for staggered terms. A dissolution cannot happen within 30 days after an election, within 60 days before one, or within two years of the last dissolution.
 
+**Weather.** The Senate reads the Weather Bureau's climate layer, a root of the universe, which must load before `universe.js`. If it can't be reached, the Senate refuses to run (`ready()` returns false) rather than compute a different history. Storms, gales of 100 km/h or more, and snow at 18:30 call off that day's sitting (about eight a year, mostly storms). Rain or strong wind at a vote keeps more senators away. After a named storm clears, the largest party brings an emergency recovery bill raising the construction budget, which usually passes. Rain in the day before an election lowers turnout. And until the Ecosystem exists, smog complaints follow still, cold days, judged on yesterday's weather.
+
 **Names.** When a generated name is already taken, the newcomer gets a numeral (Hex Halftone II).
 
 ## Laws and guardrails
@@ -98,6 +100,7 @@ To test locally instead, run `python3 -m http.server` in the folder and open `ht
 ## Using it from another site
 
 ```html
+<script src="https://dvexperiments.github.io/Weather/universe.js"></script>
 <script src="https://dvexperiments.github.io/Senate/universe.js"></script>
 <script>
   const senate = window.PixelUniverse && PixelUniverse.senate;
@@ -116,6 +119,8 @@ To test locally instead, run `python3 -m http.server` in the folder and open `ht
 | `lawsAt(time)` | Every law key resolved, defaults included |
 | `styleVars(time, scheme)` | CSS variable values for `light` or `dark`, guardrails applied |
 | `billsBetween(from, to)`, `electionsBetween(from, to)` | Finished bills (with every senator's vote) and full election results, including preference rounds |
+| `policyBetween(from, to)` | Environmental policy levels each time they changed (read by Pixel City) |
+| `districtProfiles` | Each district's name, environmental and aesthetic leaning, and size |
 | `create()` | A fresh, independent instance (used for testing) |
 
 All times are milliseconds since the Unix epoch, UTC.

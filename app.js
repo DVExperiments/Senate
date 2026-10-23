@@ -46,6 +46,7 @@
   }
   function render() {
     if (unmount) { unmount(); unmount = null; }
+    if (!S.ready()) { main.innerHTML = '<section class="page-head"><h1>The Senate cannot sit</h1><p class="lede">The Senate needs the Weather Bureau\u2019s records to know what has happened, and they could not be reached. Please try again shortly.</p></section>'; return; }
     const r = parse();
     const view = V[r.view];
     const model = M.build(true);
@@ -69,7 +70,7 @@
   const dot = document.getElementById('livedot');
   function liveDot() {
     const now = M.now(), day = M.dayOf(now), st = M.build().st;
-    const live = st.started && !st.dissolved && ((S.calendar.isSitting(day) && now >= day + 19 * M.H && now < day + 23.5 * M.H) || st.filibuster);
+    const live = st.started && !st.dissolved && ((S.calendar.isSitting(day) && now >= day + 19 * M.H && now < day + 23.5 * M.H && !S.calendar.adjourned(day)) || st.filibuster);
     dot.classList.toggle('off', !live);
     dot.title = live ? 'The Senate is sitting' : 'The Senate is not sitting';
   }

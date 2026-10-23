@@ -12,7 +12,7 @@
 (function (root) {
   'use strict';
 
-  const VERSION = '0.2.0'; // becomes 1.0.0 at the founding election; after that, history is fixed
+  const VERSION = '0.3.0'; // becomes 1.0.0 at the founding election; after that, history is fixed
   const DAY = 86400000, H = 3600000, MIN = 60000;
   const START = Date.UTC(2026, 10, 28); // founding election, Saturday 28 November 2026
   const FIRST_SITTING = Date.UTC(2026, 11, 3); // Glacial's first anniversary
@@ -47,6 +47,26 @@
     return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
   }
   const seeded = (purpose, day) => rng(hash('senate:' + purpose + ':' + ymd(day)));
+
+  // ---------------------------------------------------------------- the weather
+  // The Senate reads the Weather Bureau's climate layer (a root of the universe). It must load first:
+  // without it the Senate would compute a different history, so it refuses to run instead.
+  const climate = () => root.PixelUniverse && root.PixelUniverse.climate;
+  const weatherAt = (t) => climate().sample(t);
+  /** Why a sitting is called off, judged at 18:30 on the day: a storm, a gale, or snow. */
+  function adjournReason(day) {
+    const x = weatherAt(day + 18 * H + 30 * MIN);
+    if (x.storm && x.gust >= 70) return { kind: 'storm', name: x.storm, text: x.storm + ' lashes the city' };
+    if (x.gust >= 100) return { kind: 'gale', text: 'gusts of ' + x.gust + ' km/h make the chamber unsafe' };
+    if (x.snow) return { kind: 'snow', text: 'snow has closed the streets' };
+    return null;
+  }
+  /** Rain in the 24 hours before results are declared. */
+  function electionRain(day) {
+    let rain = 0;
+    for (let k = 0; k < 24; k++) rain += weatherAt(day - 13 * H + k * H).rain;
+    return rd(rain);
+  }
 
   // ---------------------------------------------------------------- small maths
   const abs = (x) => (x < 0 ? -x : x);
@@ -201,7 +221,7 @@
       support: { B: 0.36, V: 0.32, L: 0.32 }, mood: { B: 0, V: 0, L: 0 }, fatigue: 0, leaderSupport: { B: 0, V: 0, L: 0 }, seatLoss: { B: 0, V: 0, L: 0 },
       leaders: { B: null, V: null, L: null }, majority: null,
       laws: {}, pending: [], bills: {}, filibuster: null, byelections: [], deals: {},
-      concern: 0.4, lastEmergency: 0, lastPoll: null, opened: false, founded: false,
+      concern: 0.4, lastEmergency: 0, lastPoll: null, opened: false, founded: false, lastStorm: null,
       budget: null, shutdown: null, snap: null, lastDissolution: 0, lastElection: 0, ties: [], inquiries: []
     };
   }
@@ -324,7 +344,7 @@
   function distance(a, b) { return abs(a.env - b.env) + abs(a.aes - b.aes); }
 
   /** One seat, preferential voting (instant runoff). */
-  function contest(ctx, r, seatIdx, day) {
+  function contest(ctx, r, seatIdx, day, rain) {
     const st = ctx.st, seat = st.seats[seatIdx], dist = st.districts[seat.district];
     const inc = seat.senator ? st.people[seat.senator] : null;
     const incRuns = inc && !inc.retiring && inc.termsWon < TERM_LIMIT;
@@ -334,7 +354,8 @@
     if (incRuns && inc.party === 'I') cands.push(inc);
     else if (indRoll < 0.1 + dist.ind * 2) cands.push(makePerson(r, st, 'I', seat.district));
 
-    const total = Math.floor(dist.size * (0.55 + r() * 0.2));
+    const damp = rain ? (rain / 60 < 0.15 ? rain / 60 : 0.15) : 0;
+    const total = Math.floor(dist.size * (0.55 + r() * 0.2 - damp));
     const w = cands.map((c) => {
       const aff = 1 / (0.6 + distance(dist, c));
       const sup = c.party === 'I' ? dist.ind + (c === inc ? 0.17 : 0.09) : st.support[c.party];
@@ -392,7 +413,7 @@
     let firstLeader = 0;
     for (let i = 1; i < cands.length; i++) if (rounds[0][i] > rounds[0][firstLeader]) firstLeader = i;
     return {
-      seat: seatIdx, district: dist.name, total, informal, exhausted,
+      seat: seatIdx, district: dist.name, total, electorate: dist.size, informal, exhausted,
       cands: cands.map((c) => ({ id: c.id, name: c.name, party: c.party, incumbent: c === inc })),
       rounds, winner, winnerPerson: cands[winner], prevParty: inc ? inc.party : null, prevName: inc ? inc.name : null,
       onPreferences: rounds.length > 1, comeback: firstLeader !== winner,
@@ -428,7 +449,11 @@
     st.seats.forEach((s, i) => { if (founding || snap || s.termEnds === day) idxs.push(i); });
     if (!idxs.length) return;
     const before = counts(st);
-    const results = idxs.map((i) => contest(ctx, r, i, day));
+    const rain = electionRain(day);
+    const results = idxs.map((i) => contest(ctx, r, i, day, rain));
+    let voted = 0, enrolled = 0;
+    for (const res of results) { voted += res.total; enrolled += res.electorate; }
+    const turnout = enrolled ? rd(voted / enrolled) : 0;
     // after a snap election, senators draw lots again for staggered terms
     const ends = {};
     if (snap) {
@@ -473,7 +498,8 @@
       : snap ? (hung ? 'Snap election leaves the Senate without a majority: ' : 'Snap election hands ' + PARTIES[top].short + ' a majority: ')
         : hung ? 'No party holds a majority after the election: ' : PARTIES[top].short + ' holds a majority after the election: ';
     emit(ctx, t, 'election.summary', 5, 'election-' + ymd(day) + ':summary',
-      { composition: after, before, flips, hung, founding, snap: !!snap, contested: idxs.length }, lead + compositionText(after));
+      { composition: after, before, flips, hung, founding, snap: !!snap, contested: idxs.length, turnout, rain },
+      lead + compositionText(after) + (rain >= 8 ? '. Rain kept turnout to ' + Math.floor(turnout * 100 + 0.5) + '%' : ''));
     ctx.arch.elections.push({ ms: t, kind: founding ? 'founding' : snap ? 'snap' : 'general', composition: after, results: results.map(slimResult) });
     updateMajority(ctx, t);
     if (st.opened) for (const p of PARTY_IDS) if (!st.leaders[p]) chooseLeader(ctx, t, p, 'election');
@@ -486,7 +512,7 @@
   function byElection(ctx, t, seatIdx) {
     const st = ctx.st, day = dayOf(t), r = seeded('byelection:' + seatIdx, day);
     const seat = st.seats[seatIdx];
-    const res = contest(ctx, r, seatIdx, day);
+    const res = contest(ctx, r, seatIdx, day, electionRain(day));
     const before = counts(st);
     seatWinner(ctx, t, res, seat.termEnds);
     const after = counts(st);
@@ -732,11 +758,13 @@
     const pos = { B: partyPosition(b, 'B'), V: partyPosition(b, 'V'), L: partyPosition(b, 'L') };
     const votes = {}, rebels = [];
     let ayes = 0, noes = 0, absent = 0;
+    const wx = weatherAt(t);
+    const pAbsent = wx.rain >= 4 || wx.gust >= 75 ? 0.12 : 0.05;
     for (const seat of st.seats) {
       if (!seat.senator) continue;
       const s = st.people[seat.senator];
       const a = r(), n = r(), c = r();
-      if (a < 0.05) { votes[s.id] = '-'; absent++; s.stats.missed++; continue; }
+      if (a < pAbsent) { votes[s.id] = '-'; absent++; s.stats.missed++; continue; }
       const u = personU(b, s) + (n - 0.5) * 0.2;
       let v;
       if (s.party === 'I') v = b.forcedInd[s.id] || u > 0 ? 'A' : 'N';
@@ -773,7 +801,7 @@
     const sponsor = st.people[b.sponsor];
     if (passed && sponsor) sponsor.stats.passed++;
     const tally = res.ayes + '\u2013' + res.noes;
-    const visible = b.kind !== 'environmental' && b.kind !== 'emergency';
+    const visible = b.kind !== 'environmental' && b.kind !== 'emergency' && b.kind !== 'recovery';
     if (passed) {
       const changes = [b.change].concat(b.riders);
       st.pending.push({ bill: b.id, title: b.title, effective: dayOf(t) + DAY, changes });
@@ -1044,7 +1072,7 @@
   function maybeFilibuster(ctx, t, b, r) {
     const st = ctx.st;
     const roll = r(), lenRoll = r();
-    if (b.kind === 'emergency') return null;
+    if (b.kind === 'emergency' || b.kind === 'recovery') return null;
     const ex = expectTally(st, b);
     if (ex.ayes <= ex.noes) return null;
     let who = null, worst = -0.55;
@@ -1116,6 +1144,11 @@
         }
         done.push(describeChange(c));
       }
+      if (p.changes.some((c) => POLICY[c.key])) {
+        const levels = {};
+        for (const k in POLICY) levels[k] = st.laws[k] !== undefined ? st.laws[k] : POLICY[k].def;
+        ctx.arch.policy.push({ ms: t, levels });
+      }
       const visible = p.changes.some((c) => !POLICY[c.key]);
       emit(ctx, t, 'law.in_effect', visible ? 3 : 2, p.bill + ':in-effect', { bill: p.bill, title: p.title, changes: p.changes },
         'Now in effect: ' + done.join('; '));
@@ -1140,11 +1173,13 @@
     const month = new Date(day).getUTCMonth(), dom = new Date(day).getUTCDate();
     // Public concern about air quality. A stub until the Ecosystem exists; then it reads yesterday's smog.
     st.concern = rd(clamp(st.concern + (r() - 0.5) * 0.03 + (0.4 - st.concern) * 0.015, 0, 1));
-    const winter = month >= 5 && month <= 7;
-    if (r() < (winter ? 0.02 : 0.006)) {
+    // still, cold days trap smog: judged on yesterday's weather, as the world loop requires
+    const yday = climate().dayAt(day - DAY);
+    const still = yday.wind <= 12 && yday.rain < 1;
+    if (r() < (still ? (yday.max < 17 ? 0.07 : 0.015) : 0.002)) {
       st.concern = rd(clamp(st.concern + 0.2 + r() * 0.2, 0, 1));
       emit(ctx, t, 'concern.surge', 3, 'concern:' + ymd(day), { concern: st.concern, stub: true },
-        'Complaints about air quality flood Senate offices');
+        still ? 'Smog settles over the city on a still day, and complaints flood Senate offices' : 'Complaints about air quality flood Senate offices');
     }
     if (!st.founded) return;
     processInquiries(ctx, t, r);
@@ -1351,12 +1386,20 @@
 
   function sitting(ctx, day) {
     const st = ctx.st;
-    if (!st.opened && !at(ctx, day + 19 * H, (t) => openSenate(ctx, t))) return;
     if (st.snap) return; // dissolved: no sittings until the snap election
+    const off = adjournReason(day);
+    if (off) {
+      at(ctx, day + 19 * H, (t) => emit(ctx, t, 'senate.adjourned', 3, 'adjourned:' + ymd(day), { reason: off.kind, storm: off.name || null },
+        (st.opened ? 'The Senate adjourns for the day: ' : 'The opening of the Senate is postponed: ') + off.text));
+      return;
+    }
+    if (!st.opened && !at(ctx, day + 19 * H, (t) => openSenate(ctx, t))) return;
     const rb = seeded('bills', day), rv = seeded('votes', day), rd2 = seeded('discipline', day);
     if (needsBudgetBill(st, day) && !at(ctx, day + 19 * H + 15 * MIN, (t) => introduceBudget(ctx, t, rb))) return;
     if (st.shutdown) return shutdownSitting(ctx, day, rv, rd2);
     if (!at(ctx, day + 19 * H + 20 * MIN, (t) => committeeReports(ctx, t, rb))) return;
+    const storm = recentStorm(st, day);
+    if (storm && !at(ctx, day + 19 * H + 27 * MIN, (t) => stormRecovery(ctx, t, storm))) return;
     if (new Date(day).getUTCDate() === 3 && !at(ctx, day + 19 * H + 25 * MIN, (t) => glacialResolution(ctx, t))) return;
     // emergency procedure
     const emergencyRoll = rb();
@@ -1413,6 +1456,34 @@
     }
   }
 
+  /** A named storm that has cleared in the last four days and not yet been answered by the Senate. */
+  function recentStorm(st, day) {
+    const list = climate().systemsBetween(day - 10 * DAY, day + DAY);
+    for (const x of list) if (x.named && x.end <= day + 19 * H && x.end > day - 4 * DAY && st.lastStorm !== x.id) return x;
+    return null;
+  }
+  /** After a named storm, the largest party brings an emergency recovery bill: more construction. */
+  function stormRecovery(ctx, t, storm) {
+    const st = ctx.st;
+    st.lastStorm = storm.id;
+    const P = POLICY['policy.constructionBudget'];
+    const cur = st.laws['policy.constructionBudget'] !== undefined ? st.laws['policy.constructionBudget'] : P.def;
+    if (cur + 1 > P.max) return;
+    const p = st.majority || 'B';
+    const leader = st.leaders[p] ? st.people[st.leaders[p]] : serving(st).filter((x) => x.party === p)[0];
+    if (!leader) return;
+    const id = 'bill-' + (++st.seq.bill);
+    const b = {
+      id, no: st.seq.bill, title: storm.named + ' Recovery (Emergency) Bill', kind: 'recovery', sub: 'recovery',
+      change: { key: 'policy.constructionBudget', op: 'step', delta: 1 }, env: -0.6, aes: 0.2, taste: { B: 0, V: 0, L: 0 }, pressure: 0.18,
+      conscience: false, members: false, sponsor: leader.id, sponsorName: leader.name, sponsorParty: leader.party === 'I' ? null : leader.party,
+      introduced: t, stage: 'floor', due: null, floorDay: dayOf(t), forced: {}, forcedInd: {}, riders: [], amendments: [], storm: storm.named
+    };
+    st.bills[id] = b;
+    leader.stats.sponsored++;
+    emit(ctx, t, 'bill.emergency', 3, id + ':introduced', { bill: id, no: b.no, title: b.title, sponsor: leader.id, sponsorName: leader.name, party: b.sponsorParty, change: b.change, kind: 'recovery', storm: storm.named },
+      'Senator ' + leader.name + ' introduces the ' + b.title + ' under emergency procedure, as the city counts the cost of ' + storm.named);
+  }
   function disciplineVotes(ctx, day, r) {
     const st = ctx.st;
     const due = st.inquiries.filter((q) => q.stage === 'vote' && q.next <= day);
@@ -1452,13 +1523,13 @@
   // ---------------------------------------------------------------- the public instance
   function createSenate() {
     const events = [];
-    const archive = { bills: [], elections: [] };
+    const archive = { bills: [], elections: [], policy: [] };
     const checkpoints = [{ day: START, json: JSON.stringify(fresh()) }];
     let cache = { day: START, state: fresh() };
     const clone = (o) => JSON.parse(JSON.stringify(o));
 
     function fullCtx(st) { return { st, limit: Infinity, stopped: false, ev: events, arch: archive }; }
-    function scratchCtx(st, limit) { return { st, limit, stopped: false, ev: [], arch: { bills: [], elections: [] } }; }
+    function scratchCtx(st, limit) { return { st, limit, stopped: false, ev: [], arch: { bills: [], elections: [], policy: [] } }; }
 
     /** Simulates every whole day before `day`. */
     function ensure(day) {
@@ -1486,6 +1557,7 @@
     }
 
     function stateAt(time) {
+      if (!climate()) return { time, started: false, unavailable: 'The Weather Bureau could not be reached', laws: resolveLaws({}), pendingLaws: [], presidingOfficer: PRESIDING_OFFICER };
       if (time < START) {
         return { time, started: false, opened: false, startDate: ymd(START), firstSitting: ymd(FIRST_SITTING),
           laws: resolveLaws({}), pendingLaws: [], nextElection: ymd(START), presidingOfficer: PRESIDING_OFFICER };
@@ -1518,30 +1590,38 @@
       };
     }
     function eventsBetween(from, to) {
-      if (to < START) return [];
+      if (to < START || !climate()) return [];
       const ctx = upTo(to), day = dayOf(to);
       return events.filter((e) => e.ms >= from && e.ms < day).concat(ctx.ev.filter((e) => e.ms >= from && e.ms <= to));
     }
     function billsBetween(from, to) {
-      if (to < START) return [];
+      if (to < START || !climate()) return [];
       const ctx = upTo(to), day = dayOf(to);
       return archive.bills.filter((b) => b.finished < day).concat(ctx.arch.bills).filter((b) => b.finished >= from && b.finished <= to);
     }
     function electionsBetween(from, to) {
-      if (to < START) return [];
+      if (to < START || !climate()) return [];
       const ctx = upTo(to), day = dayOf(to);
       return archive.elections.filter((e) => e.ms < day).concat(ctx.arch.elections).filter((e) => e.ms >= from && e.ms <= to);
     }
     function lawsAt(time) { return stateAt(time).laws; }
+    /** Environmental policy levels each time they changed, up to `to`. Before the first entry, the defaults apply. */
+    function policyBetween(from, to) {
+      if (to < START || !climate()) return [];
+      const ctx = upTo(to), day = dayOf(to);
+      return archive.policy.filter((x) => x.ms < day).concat(ctx.arch.policy).filter((x) => x.ms >= from && x.ms <= to);
+    }
 
     return {
       version: VERSION, startDate: ymd(START), firstSitting: ymd(FIRST_SITTING),
       parties: PARTIES, independent: INDEPENDENT, districts: DISTRICT_NAMES, presidingOfficer: PRESIDING_OFFICER,
       lawKeys: { colours: COLOUR_KEYS, choices: CHOICES, policy: POLICY, shiftLimits: SHIFT_LIMITS },
-      stateAt, eventsBetween, billsBetween, electionsBetween, lawsAt,
+      stateAt, eventsBetween, billsBetween, electionsBetween, lawsAt, policyBetween,
+      districtProfiles: makeDistricts().map((d) => ({ id: d.id, name: d.name, env: d.env, aes: d.aes, size: d.size })),
       styleVars: (time, scheme) => styleVars(lawsAt(time), scheme),
       create: createSenate,
-      calendar: { isSitting, isGeneralElection, electionsAfter, firstSitting: FIRST_SITTING, start: START },
+      calendar: { isSitting, isGeneralElection, electionsAfter, firstSitting: FIRST_SITTING, start: START, adjourned: (day) => (climate() ? adjournReason(day) : null) },
+      ready: () => !!climate(),
       _internals: { rng, hash, START, DAY }
     };
   }

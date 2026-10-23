@@ -112,7 +112,7 @@
           else status = 'The Senate is dealing with formal business.';
           if (base.mode === 'live') { kicker = m.st.shutdown ? 'Live from the chamber, shutdown day ' + m.st.shutdown.days : 'Live from the chamber'; mode = 'Live'; }
           else {
-            kicker = 'Replay of the sitting on ' + M.date(base.day) + ' at ' + F.REPLAY_SPEED + '\u00d7 speed. The Senate sits again in ' + M.dur(base.nextSitting - now, true) + '.';
+            kicker = (base.adjourned ? 'Today\u2019s sitting was called off: ' + esc(base.adjourned.text) + '. ' : '') + 'Replay of the sitting on ' + M.date(base.day) + ' at ' + F.REPLAY_SPEED + '\u00d7 speed. The Senate sits again in ' + M.dur(base.nextSitting - now, true) + '.';
             mode = 'Replay ' + F.REPLAY_SPEED + '\u00d7, ' + M.timeSec(f.sim);
           }
         }
@@ -164,6 +164,8 @@
           add('Inquiries', s.inquiries.length ? String(s.inquiries.length) : 'None');
           if (s.lastPoll) add('Latest poll', 'B ' + s.lastPoll.B + ', V ' + s.lastPoll.V + ', L ' + s.lastPoll.L);
           add('Bills in committee', String((s.bills || []).filter((b) => b.stage === 'committee').length));
+          const wx = window.PixelUniverse.climate && window.PixelUniverse.climate.sample(now);
+          if (wx) add('Outside', esc(wx.cond) + ', ' + Math.round(wx.temp) + '\u00b0C');
           set('upcoming', up.join(''));
           const tk = m.events.filter((e) => e.importance >= 3 && now - e.ms > 15 * MIN).slice(-14).reverse();
           set('ticker', tk.map((e) => '<span><b>' + M.dateShort(e.ms) + '</b>' + esc(e.headline) + '</span>').join(''));
