@@ -2,61 +2,46 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>The Pixel Senate</title>
+<meta name="description" content="Forty-eight pixels debate, vote, filibuster and hold elections forever. The fastest politics in the Pixel Universe.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-  :root { --bg: #E6ECEE; --ink: #14212A; --muted: #536370; --line: #C3CED3; --line-soft: #D6DEE2; --link: #1C5AB3;
-    --display: "Bricolage Grotesque", "Arial Narrow", system-ui, sans-serif; --body: "IBM Plex Sans", system-ui, sans-serif; color-scheme: light; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #10181D; --ink: #E1E9EC; --muted: #93A4AE; --line: #2C3A42; --line-soft: #202C33; --link: #82B6FF; color-scheme: dark; } }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 400 1.0625rem/1.55 var(--body); font-variant-numeric: tabular-nums; }
-  main { max-width: 760px; margin: 0 auto; padding: 48px 24px 80px; }
-  h1 { font: 800 clamp(2.6rem, 7vw, 4.4rem)/0.98 var(--display); letter-spacing: -0.04em; margin: 0 0 16px; }
-  .status { font-size: 1.3rem; line-height: 1.4; margin: 0 0 8px; }
-  .muted { color: var(--muted); }
-  a { color: var(--link); }
-  ul { list-style: none; padding: 0; margin: 28px 0 0; border-top: 1px solid var(--line); }
-  li { display: grid; grid-template-columns: 8.5em 1fr; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
-  time { color: var(--muted); }
-  footer { margin-top: 40px; color: var(--muted); font-size: 0.92rem; }
-</style>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/senate.css">
 </head>
 <body>
-<main>
-  <h1>The Pixel Senate</h1>
-  <p class="status" id="status">Loading the chamber…</p>
-  <p class="muted" id="sub"></p>
-  <ul id="feed"></ul>
-  <footer>The chamber view is under construction. <a href="test.html">Open the test bench</a>.</footer>
-</main>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="top-inner">
+    <a class="brand" href="#/"><span class="brand-name">The Pixel Senate</span><span class="brand-track"><span class="brand-pixel"></span></span></a>
+    <p class="brand-tag">Where the politics moves faster than the racing.</p>
+    <nav class="nav" aria-label="Sections">
+      <a href="#/" data-view="chamber"><span class="live-dot off" id="livedot"></span>Chamber</a>
+      <a href="#/senators" data-view="senators">Senators</a>
+      <a href="#/bills" data-view="bills">Bills</a>
+      <a href="#/elections" data-view="elections">Elections</a>
+      <a href="#/laws" data-view="laws">Laws</a>
+      <a href="#/parties" data-view="parties">Parties</a>
+      <a href="#/records" data-view="records">Records</a>
+      <a href="#/about" data-view="about">About</a>
+    </nav>
+  </div>
+</header>
+<p class="banner" id="travel" hidden style="max-width:var(--wrap);margin:12px auto 0"></p>
+<main id="main" tabindex="-1"></main>
+<footer class="foot">
+  <p>Part of the Pixel Universe. Watch the world&rsquo;s slowest race at <a href="https://dvexperiments.github.io/Glacial/">Glacial</a>.</p>
+  <p><a href="test.html">Test bench</a></p>
+</footer>
+<noscript><p style="max-width:1160px;margin:0 auto;padding:0 24px">The Senate is computed in your browser, so it needs JavaScript.</p></noscript>
+<script src="https://dvexperiments.github.io/Glacial/js/pixels.js"></script>
+<script src="https://dvexperiments.github.io/Glacial/js/sim.js"></script>
+<script src="https://dvexperiments.github.io/Glacial/js/league.js"></script>
 <script src="universe.js"></script>
-<script>
-(function () {
-  const S = PixelUniverse.senate;
-  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const local = (ms) => new Date(ms).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
-  function render() {
-    const now = Date.now();
-    const st = S.stateAt(now);
-    if (!st.started) {
-      const days = Math.ceil((Date.UTC(2026, 10, 28, 11) - now) / 86400000);
-      document.getElementById('status').textContent = 'The founding election is in ' + days + ' day' + (days === 1 ? '' : 's') + '.';
-      document.getElementById('sub').textContent = 'Results are declared at 11:00 UTC on 28 November 2026. The Senate first sits on 3 December.';
-      return;
-    }
-    const c = st.composition;
-    document.getElementById('status').textContent = 'Brightness ' + c.B + ', Verdant ' + c.V + ', Legacy Mode ' + c.L + (c.I ? ', independents ' + c.I : '') + '.';
-    document.getElementById('sub').textContent = st.majorityLeader
-      ? 'Majority Leader: Senator ' + st.majorityLeader.name + '. Next election ' + st.nextElection + '.'
-      : 'The Senate first sits on ' + st.firstSitting + '.';
-    const ev = S.eventsBetween(now - 14 * 86400000, now).filter((e) => e.importance >= 2).reverse().slice(0, 25);
-    document.getElementById('feed').innerHTML = ev.map((e) => '<li><time>' + local(e.ms) + '</time><span>' + esc(e.headline) + '</span></li>').join('');
-  }
-  render();
-  setInterval(render, 60000);
-})();
-</script>
+<script src="js/model.js"></script>
+<script src="js/floor.js"></script>
+<script src="js/views.js"></script>
+<script src="js/app.js"></script>
 </body>
 </html>

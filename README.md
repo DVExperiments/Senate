@@ -9,8 +9,21 @@ Live at `https://dvexperiments.github.io/Senate/`. The test bench is at `/Senate
 | File | What it does |
 | --- | --- |
 | `universe.js` | The whole simulation. No DOM code; any site can load it. |
+| `index.html` | The site: chamber, senators, bills, elections, laws, parties, records. |
+| `css/senate.css` | Styles, built on Glacial's. |
+| `js/model.js` | Reads the simulation and derives careers, voting records, allies and records. |
+| `js/floor.js` | What is happening on the floor at any moment, and the chamber animation. |
+| `js/views.js` | Every page. |
+| `js/app.js` | Routing, the live loop, and applying the Senate's own laws to the site. |
 | `test.html` | Self-checks, drama report, election history, a moment inspector and an event log. |
-| `index.html` | Placeholder home page with live status until the chamber view is built. |
+
+## The chamber view
+
+The racing is slow; the politics is fast. During sittings (19:00 to 23:30 UTC) the chamber is live: a new senator takes the floor every 20 seconds, and divisions are counted in about 90 seconds, with each vote flying to the Ayes or Noes. Outside sitting hours the chamber replays the last sitting at 90× speed. Speakers and speeches are seeded by time, so every visitor sees the same senator speaking at the same moment; the fidgeting, whispering and heckling flickers are decoration only.
+
+The site obeys the Senate's laws: colours, typefaces and names change at 00:00 UTC when a law takes effect.
+
+**Time travel for testing.** Add `?at=` to any address to watch the Senate from that moment (UTC), for example `index.html?at=2027-01-04T21:20` for a live debate, `?at=2027-01-04T22:00:50` for a division, or `?at=2027-07-02T21:50` for a shutdown vote. Links keep the parameter while you browse.
 
 ## Design
 

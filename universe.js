@@ -778,13 +778,13 @@
       const changes = [b.change].concat(b.riders);
       st.pending.push({ bill: b.id, title: b.title, effective: dayOf(t) + DAY, changes });
       emit(ctx, t, 'bill.passed', visible || b.kind === 'emergency' ? 3 : 2, b.id + ':passed',
-        { bill: b.id, title: b.title, ayes: res.ayes, noes: res.noes, rebels: res.rebels, changes },
+        { bill: b.id, title: b.title, ayes: res.ayes, noes: res.noes, rebels: res.rebels, changes, votes: res.votes, sponsor: b.sponsor },
         'The ' + b.title + ' passes ' + tally);
     } else if (tie) {
-      emit(ctx, t, 'bill.failed', 4, b.id + ':failed', { bill: b.id, title: b.title, ayes: res.ayes, noes: res.noes, tie: true },
+      emit(ctx, t, 'bill.failed', 4, b.id + ':failed', { bill: b.id, title: b.title, ayes: res.ayes, noes: res.noes, tie: true, rebels: res.rebels, votes: res.votes, sponsor: b.sponsor },
         'The ' + b.title + ' falls on the Presiding Officer\u2019s casting vote after a ' + tally + ' tie');
     } else {
-      emit(ctx, t, 'bill.failed', 2, b.id + ':failed', { bill: b.id, title: b.title, ayes: res.ayes, noes: res.noes },
+      emit(ctx, t, 'bill.failed', 2, b.id + ':failed', { bill: b.id, title: b.title, ayes: res.ayes, noes: res.noes, rebels: res.rebels, votes: res.votes, sponsor: b.sponsor },
         'The ' + b.title + ' is defeated ' + tally);
     }
     if (res.rebels.length >= 2) {
@@ -808,12 +808,17 @@
   // 1 July: no other business until the budget passes, and the chamber's lights are dimmed.
   const PRIORITIES = { B: ['policy.constructionBudget', 'policy.coalPlants'], V: ['policy.solarSubsidy', 'policy.windFarms'], L: ['policy.parks', 'policy.wildlifeZones'] };
   const fyLabel = (fy) => fy + '/' + pad((fy + 1) % 100);
-  function budgetFY(day) { return new Date(day).getUTCFullYear(); }
+  const FIRST_FY = 2027; // the first budget is for 2027/28; the founding year has none
+  /** The financial year whose budget is being prepared: from 2 June, next year's. */
+  function budgetFY(day) {
+    const y = new Date(day).getUTCFullYear();
+    return day >= Date.UTC(y, 5, 2) ? y : y - 1;
+  }
   function needsBudgetBill(st, day) {
-    const d = new Date(day), y = d.getUTCFullYear();
-    if (day < Date.UTC(y, 5, 2)) return false;
-    if (!st.budget || st.budget.fy < y) return true;
-    return !st.budget.passed && !st.bills[st.budget.bill];
+    const fy = budgetFY(day);
+    if (fy < FIRST_FY) return false;
+    if (!st.budget || st.budget.fy < fy) return true;
+    return st.budget.fy === fy && !st.budget.passed && !st.bills[st.budget.bill];
   }
   function introduceBudget(ctx, t, r) {
     const st = ctx.st, day = dayOf(t), fy = budgetFY(day);
@@ -864,13 +869,13 @@
       if (sponsor) sponsor.stats.passed++;
       if (st.shutdown) {
         const days = Math.floor((dayOf(t) - st.shutdown.since) / DAY) + 1;
-        emit(ctx, t, 'budget.passed', 4, b.id + ':passed', { bill: b.id, ayes: res.ayes, noes: res.noes, attempts: st.budget.attempts, shutdownDays: days },
+        emit(ctx, t, 'budget.passed', 4, b.id + ':passed', { bill: b.id, title: b.title, ayes: res.ayes, noes: res.noes, attempts: st.budget.attempts, shutdownDays: days, votes: res.votes, sponsor: b.sponsor },
           'The ' + b.title + ' passes ' + tally + ' at attempt ' + st.budget.attempts);
         emit(ctx, t, 'shutdown.end', 4, 'shutdown-end:' + ymd(t), { days },
           'The shutdown ends after ' + days + ' day' + (days === 1 ? '' : 's') + '; the chamber lights come back on');
         st.shutdown = null;
       } else {
-        emit(ctx, t, 'budget.passed', 3, b.id + ':passed', { bill: b.id, ayes: res.ayes, noes: res.noes, attempts: st.budget.attempts },
+        emit(ctx, t, 'budget.passed', 3, b.id + ':passed', { bill: b.id, title: b.title, ayes: res.ayes, noes: res.noes, attempts: st.budget.attempts, votes: res.votes, sponsor: b.sponsor },
           'The ' + b.title + ' passes ' + tally + (st.budget.attempts > 1 ? ' at attempt ' + st.budget.attempts : ''));
       }
       finish(ctx, t, b);
@@ -888,7 +893,7 @@
     const left = Math.floor((deadline - dayOf(t)) / DAY);
     const tail = st.shutdown ? '; the shutdown continues' : left > 0 ? '; ' + left + ' day' + (left === 1 ? '' : 's') + ' until the money runs out' : '; the Senate faces a shutdown at midnight';
     emit(ctx, t, 'budget.defeated', st.shutdown || left <= 0 ? 4 : 3, b.id + ':defeated-' + st.budget.attempts,
-      { bill: b.id, ayes: res.ayes, noes: res.noes, attempt: st.budget.attempts, tie: res.ayes === res.noes },
+      { bill: b.id, title: b.title, ayes: res.ayes, noes: res.noes, attempt: st.budget.attempts, tie: res.ayes === res.noes, votes: res.votes, sponsor: b.sponsor },
       'The ' + b.title + ' is defeated ' + tally + (res.ayes === res.noes ? ' on the casting vote' : '') + tail);
   }
   function startShutdown(ctx, t) {
@@ -1011,7 +1016,7 @@
   function maybeDissolve(ctx, t, r) {
     const st = ctx.st, day = dayOf(t);
     const roll = r();
-    st.ties = st.ties.filter((d) => day - d <= 45 * DAY);
+    st.ties = st.ties.filter((d) => day - d <= 60 * DAY);
     if (!st.opened || st.snap) return;
     if (st.lastDissolution && day - st.lastDissolution < 730 * DAY) return;
     if (electionsAfter(day - 1, 1)[0] - day <= 60 * DAY || day - st.lastElection < 30 * DAY) return;
@@ -1030,7 +1035,7 @@
     }
     st.byelections = [];
     st.ties = [];
-    const why = longShutdown ? 'a ' + shutdownDays + '-day shutdown' : 'three tied votes in six weeks';
+    const why = longShutdown ? 'a ' + shutdownDays + '-day shutdown' : 'three tied votes in two months';
     emit(ctx, t, 'senate.dissolved', 5, 'dissolution:' + ymd(day), { reason: st.snap.reason, snapElection: ymd(snapDay), lapsed },
       PRESIDING_OFFICER.title + ' ' + PRESIDING_OFFICER.name + ' dissolves the Senate after ' + why + '; all 48 seats will be contested on ' + ymd(snapDay));
   }
@@ -1429,7 +1434,7 @@
     if (!at(ctx, day, (t) => {
       applyPending(ctx, t);
       if (st.founded) drift(ctx, t);
-      if (july1 && st.opened && !st.shutdown && !(st.budget && st.budget.fy === date.getUTCFullYear() && st.budget.passed)) startShutdown(ctx, t);
+      if (july1 && st.opened && !st.shutdown && date.getUTCFullYear() >= FIRST_FY && !(st.budget && st.budget.fy === date.getUTCFullYear() && st.budget.passed)) startShutdown(ctx, t);
     })) return;
     continueFilibuster(ctx, day);
     if (!at(ctx, day + 9 * H, (t) => news(ctx, t))) return;
@@ -1534,6 +1539,7 @@
       stateAt, eventsBetween, billsBetween, electionsBetween, lawsAt,
       styleVars: (time, scheme) => styleVars(lawsAt(time), scheme),
       create: createSenate,
+      calendar: { isSitting, isGeneralElection, electionsAfter, firstSitting: FIRST_SITTING, start: START },
       _internals: { rng, hash, START, DAY }
     };
   }
