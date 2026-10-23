@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pixel Senate: test bench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #E6ECEE; --surface: #F3F6F7; --ink: #14212A; --muted: #536370; --line: #C3CED3; --line-soft: #D6DEE2;
+    --link: #1C5AB3; --screen: #0E171C; --bezel: #1E2A31; --ok: #23824B; --warn: #A86A00; --bad: #B4232A;
+    --display: "Bricolage Grotesque", "Arial Narrow", system-ui, sans-serif;
+    --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #10181D; --surface: #162128; --ink: #E1E9EC; --muted: #93A4AE; --line: #2C3A42; --line-soft: #202C33;
+      --link: #82B6FF; --screen: #0A1115; --bezel: #24323A; --ok: #5BC98A; --warn: #E2A93B; --bad: #F2767B; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 400 1rem/1.55 var(--body); font-variant-numeric: tabular-nums; }
+  main { max-width: 1160px; margin: 0 auto; padding: 32px 24px 80px; }
+  h1 { font: 800 clamp(2.2rem, 5vw, 3.6rem)/1 var(--display); letter-spacing: -0.04em; margin: 0 0 10px; }
+  h2 { font: 700 1.45rem/1.15 var(--display); letter-spacing: -0.02em; margin: 48px 0 6px; }
+  .lede { max-width: 44em; color: var(--muted); margin: 0; }
+  .hint { color: var(--muted); margin: 0 0 14px; font-size: 0.95rem; max-width: 52em; }
+  .controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 14px 0; }
+  label { color: var(--muted); display: inline-flex; gap: 8px; align-items: center; }
+  input, select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); padding: 7px 9px; border-radius: 3px; }
+  button { font: 600 0.97rem/1 var(--body); color: var(--bg); background: var(--ink); border: 0; padding: 11px 16px; border-radius: 3px; cursor: pointer; }
+  button:hover { opacity: 0.9; }
+  :focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+  th, td { text-align: left; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--line-soft); vertical-align: baseline; }
+  th { color: var(--muted); font-weight: 500; font-size: 0.88rem; border-bottom-color: var(--line); }
+  td.n, th.n { text-align: right; }
+  .wrap { overflow-x: auto; }
+  .ok { color: var(--ok); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .checks { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--line); }
+  .checks li { display: grid; grid-template-columns: 6em 1fr; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
+  .bar { display: flex; height: 14px; width: 100%; max-width: 384px; background: var(--line-soft); }
+  .bar i { display: block; height: 100%; }
+  .grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 40px; }
+  .chamber { background: var(--bezel); border-radius: 14px; padding: 10px; }
+  .chamber svg { display: block; width: 100%; height: auto; background: var(--screen); border-radius: 6px; }
+  .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; margin: 0; }
+  .facts div { padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
+  .facts dt { color: var(--muted); font-size: 0.88rem; }
+  .facts dd { margin: 2px 0 0; font-weight: 600; }
+  .chip { display: inline-block; width: 0.7em; height: 0.7em; margin-right: 0.4em; background: var(--c); vertical-align: -0.02em; }
+  .feed { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); max-height: 640px; overflow-y: auto; }
+  .feed li { display: grid; grid-template-columns: 9.5em 1.6em 1fr; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); font-size: 0.95rem; }
+  .feed time, .feed .imp { color: var(--muted); }
+  .preview { border-radius: 10px; padding: 14px; border: 1px solid var(--line); }
+  .preview .panel { border-radius: 6px; padding: 12px; margin: 10px 0; }
+  .preview .scr { height: 34px; border-radius: 6px; position: relative; }
+  .preview .scr i { position: absolute; top: 15px; width: 4px; height: 4px; }
+  .status { color: var(--muted); min-height: 1.5em; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } .feed li { grid-template-columns: 8em 1.4em 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Pixel Senate test bench</h1>
+  <p class="lede">Checks that the Senate simulation is deterministic and measures whether its history is eventful enough. Nothing here is stored; every number is recomputed from the date.</p>
+
+  <h2>Self-checks</h2>
+  <p class="hint">These must all pass before launch. Glacial's scripts load from its live site so the shared random generator can be compared.</p>
+  <ul class="checks" id="checks"><li><span class="status">Running…</span><span></span></li></ul>
+
+  <h2>Drama report</h2>
+  <p class="hint">Simulates the chosen span from the founding election and compares the result with target ranges. Amber means outside the target, not broken.</p>
+  <div class="controls">
+    <label>Years <select id="years"><option>1</option><option>3</option><option selected>10</option><option>25</option></select></label>
+    <button id="run">Run report</button>
+    <span class="status" id="runStatus"></span>
+  </div>
+  <div class="wrap"><table id="drama"></table></div>
+
+  <h2>Elections</h2>
+  <p class="hint">Seats after each election, out of 48. Flips are seats that changed party.</p>
+  <div class="wrap"><table id="elections"></table></div>
+
+  <h2>Inspect a moment</h2>
+  <div class="controls">
+    <label>Date and time (UTC) <input type="datetime-local" id="when" step="60"></label>
+    <button id="inspect">Inspect</button>
+    <button id="now" type="button">Now</button>
+  </div>
+  <div class="grid">
+    <div>
+      <div class="chamber"><svg id="chamber" viewBox="0 0 400 232" role="img" aria-label="Senate chamber"></svg></div>
+      <dl class="facts" id="facts"></dl>
+    </div>
+    <div>
+      <div class="preview" id="preview"></div>
+      <div class="wrap"><table id="laws"></table></div>
+    </div>
+  </div>
+  <h2>Bills before the Senate</h2>
+  <div class="wrap"><table id="bills"></table></div>
+
+  <h2>Event log</h2>
+  <div class="controls">
+    <label>Show <select id="imp"><option value="1">everything</option><option value="2">importance 2+</option><option value="3" selected>importance 3+</option><option value="4">importance 4+</option><option value="5">front page only</option></select></label>
+    <label>Days before the inspected moment <input type="number" id="span" value="60" min="1" max="3650" style="width:6em"></label>
+  </div>
+  <ul class="feed" id="feed"></ul>
+</main>
+
+<script src="https://dvexperiments.github.io/Glacial/js/pixels.js"></script>
+<script src="https://dvexperiments.github.io/Glacial/js/sim.js"></script>
+<script src="https://dvexperiments.github.io/Glacial/js/league.js"></script>
+<script src="universe.js"></script>
+<script>
+(function () {
+  const S = PixelUniverse.senate;
+  const D = PixelUniverse.senateDisplay;
+  const DAY = 86400000, START = Date.UTC(2026, 10, 28);
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const COLORS = { B: S.parties.B.color, V: S.parties.V.color, L: S.parties.L.color, I: S.independent.color };
+  const NAMES = { B: 'Brightness', V: 'Verdant', L: 'Legacy Mode', I: 'Independent' };
+  const fmt = (ms) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
+
+  // ---------------------------------------------------------------- self-checks
+  function checks() {
+    const out = [];
+    const add = (ok, text) => out.push({ ok, text });
+    const G = window.G;
+    if (G && G.rng && G.hash) {
+      let same = true;
+      for (const s of ['C-2026-10-23', 'senate:bills:2027-01-01', 'pair:GP-2026-12']) {
+        const a = G.rng(G.hash(s)), b = S._internals.rng(S._internals.hash(s));
+        for (let i = 0; i < 50; i++) if (a() !== b()) same = false;
+      }
+      add(same, 'Random generator matches Glacial\u2019s G.rng and G.hash exactly');
+    } else add(null, 'Glacial scripts did not load, so the generator comparison was skipped (expected when offline)');
+
+    const end = START + 2 * 365 * DAY;
+    const a = S.create(), b = S.create();
+    const ja = JSON.stringify(a.eventsBetween(START, end)), jb = JSON.stringify(b.eventsBetween(START, end));
+    add(ja === jb, 'Two independent replays of two years produce identical events');
+
+    let bad = 0;
+    const times = [];
+    for (let i = 0; i < 6; i++) times.push(START + Math.floor(Math.random() * 2 * 365 * DAY));
+    for (const t of times) {
+      const fresh = S.create();
+      if (JSON.stringify(fresh.stateAt(t)) !== JSON.stringify(a.stateAt(t))) bad++;
+      if (JSON.stringify(fresh.eventsBetween(START, t)) !== JSON.stringify(a.eventsBetween(START, t))) bad++;
+    }
+    add(bad === 0, 'State and events at six random moments match whether computed fresh, forwards or backwards' + (bad ? ' (' + bad + ' mismatches)' : ''));
+
+    const t = times[0];
+    add(!a.eventsBetween(START, t).some((e) => e.ms > t), 'No event from the future is visible at a given moment');
+
+    let worst = 99;
+    for (let x = START; x < end; x += 7 * DAY) for (const sc of ['light', 'dark']) {
+      const v = a.styleVars(x, sc);
+      worst = Math.min(worst, D.contrast(v['--link'], v['--bg']));
+    }
+    add(worst >= 4.5, 'Colour laws keep link contrast at or above 4.5:1 in both modes (worst ' + worst.toFixed(2) + ':1)');
+    const pre = a.stateAt(START - DAY);
+    add(pre.started === false && pre.laws['style.display'] === 'Bricolage Grotesque', 'Before the founding election the Senate returns defaults and no events');
+    return out;
+  }
+  function renderChecks() {
+    const list = checks();
+    $('checks').innerHTML = list.map((c) => '<li><span class="' + (c.ok === null ? 'warn' : c.ok ? 'ok' : 'bad') + '">' +
+      (c.ok === null ? 'Skipped' : c.ok ? 'Pass' : 'Fail') + '</span><span>' + esc(c.text) + '</span></li>').join('');
+  }
+
+  // ---------------------------------------------------------------- drama report
+  const TARGETS = [
+    ['Notable events (importance 3+) per week', (m) => m.notable / m.weeks, 2, 6],
+    ['Big events (importance 4+) per month', (m) => m.big / m.months, 0.5, 4],
+    ['Visible law changes per month', (m) => m.visible / m.months, 2, 6],
+    ['Environmental law changes per month', (m) => m.policy / m.months, 0.5, 4],
+    ['Tied votes per year', (m) => m.ties / m.years, 1, 6],
+    ['Changes of largest party per year', (m) => m.majority / m.years, 0.3, 2],
+    ['Share of elections with no majority', (m) => m.hung / m.elections, 0.4, 1],
+    ['Filibusters per year', (m) => m.filibusters / m.years, 1, 8],
+    ['Concessions per year', (m) => m.concessions / m.years, 6, 40],
+    ['Defections per year', (m) => m.defections / m.years, 0.2, 2],
+    ['By-elections per year', (m) => m.byelections / m.years, 0.3, 2.5],
+    ['Leaders toppled per year', (m) => m.toppled / m.years, 0.2, 1.5],
+    ['Scandals per year', (m) => m.scandals / m.years, 1, 5],
+    ['Seats changing party per election', (m) => m.flips / Math.max(1, m.elections - 1), 1, 6]
+  ];
+  function report(years) {
+    const inst = S.create();
+    const end = START + years * 365 * DAY;
+    const t0 = performance.now();
+    const ev = inst.eventsBetween(START, end);
+    const ms = performance.now() - t0;
+    const c = (f) => ev.filter(f).length;
+    const m = {
+      years, months: years * 12, weeks: years * 52,
+      notable: c((e) => e.importance >= 3), big: c((e) => e.importance >= 4 && e.type !== 'election.result'),
+      visible: c((e) => e.type === 'law.in_effect' && e.importance === 3), policy: c((e) => e.type === 'law.in_effect' && e.importance === 2),
+      ties: c((e) => e.type === 'bill.failed' && e.data.tie), majority: c((e) => e.type === 'majority.change'),
+      hung: c((e) => e.type === 'election.summary' && e.data.hung), elections: c((e) => e.type === 'election.summary'),
+      filibusters: c((e) => e.type === 'filibuster.start'), concessions: c((e) => e.type === 'bill.concession'),
+      defections: c((e) => e.type === 'senator.defected'), byelections: c((e) => e.type === 'byelection.result'),
+      toppled: c((e) => e.type === 'leader.challenge' && e.data.won), scandals: c((e) => e.type === 'senator.scandal' || e.type === 'senator.resigned'),
+      flips: c((e) => e.type === 'election.result' && e.importance === 4)
+    };
+    $('drama').innerHTML = '<thead><tr><th>Measure</th><th class="n">Result</th><th class="n">Target</th><th>Status</th></tr></thead><tbody>' +
+      TARGETS.map(([label, f, lo, hi]) => {
+        const v = f(m), ok = v >= lo && v <= hi;
+        return '<tr><td>' + label + '</td><td class="n">' + v.toFixed(2) + '</td><td class="n">' + lo + ' to ' + hi +
+          '</td><td class="' + (ok ? 'ok' : 'warn') + '">' + (ok ? 'In range' : v < lo ? 'Too quiet' : 'Too busy') + '</td></tr>';
+      }).join('') + '</tbody>';
+    $('runStatus').textContent = years + ' years, ' + ev.length.toLocaleString() + ' events, simulated in ' + Math.round(ms) + ' ms';
+
+    const els = inst.electionsBetween(START, end);
+    $('elections').innerHTML = '<thead><tr><th>Date</th><th>Kind</th><th>Seats</th><th>Composition</th><th class="n">Flips</th></tr></thead><tbody>' +
+      els.map((e) => {
+        const comp = e.composition;
+        const bar = ['B', 'V', 'L', 'I'].map((p) => '<i style="width:' + (comp[p] / 48 * 100) + '%;background:' + COLORS[p] + '"></i>').join('');
+        const flips = e.results.filter((r) => r.prevParty && r.prevParty !== r.cands[r.winner].party).length;
+        return '<tr><td>' + new Date(e.ms).toISOString().slice(0, 10) + '</td><td>' + e.kind + '</td><td><div class="bar">' + bar + '</div></td><td>B ' +
+          comp.B + ', V ' + comp.V + ', L ' + comp.L + (comp.I ? ', I ' + comp.I : '') + (comp.vacant ? ', vacant ' + comp.vacant : '') +
+          '</td><td class="n">' + (e.kind === 'founding' ? '' : flips) + '</td></tr>';
+      }).join('') + '</tbody>';
+  }
+
+  // ---------------------------------------------------------------- inspector
+  function chamber(st) {
+    const svg = $('chamber');
+    if (!st.started) { svg.innerHTML = '<text x="200" y="120" fill="#93A4AE" text-anchor="middle" font-size="12">The Senate has not been elected yet</text>'; return; }
+    const rows = [9, 11, 13, 15];
+    const pos = [];
+    rows.forEach((n, r) => {
+      const radius = 80 + r * 26;
+      for (let i = 0; i < n; i++) {
+        const a = Math.PI - (Math.PI * i) / (n - 1);
+        pos.push({ x: 200 + radius * Math.cos(a), y: 200 - radius * Math.sin(a), a });
+      }
+    });
+    pos.sort((p, q) => q.a - p.a);
+    const maj = st.majority;
+    const order = ['B', 'V', 'L'].filter((p) => p !== maj).concat(['I', maj]);
+    const seats = st.seats.slice().sort((x, y) => {
+      const px = x.senator ? order.indexOf(x.senator.party) : 5, py = y.senator ? order.indexOf(y.senator.party) : 5;
+      return px - py || x.seat - y.seat;
+    });
+    svg.innerHTML = seats.map((s, i) => {
+      const p = pos[i], c = s.senator ? COLORS[s.senator.party] : 'none';
+      const title = s.senator ? s.senator.name + ', ' + NAMES[s.senator.party] + ', ' + s.district : 'Vacant, ' + s.district;
+      return '<rect x="' + (p.x - 4).toFixed(1) + '" y="' + (p.y - 4).toFixed(1) + '" width="8" height="8" fill="' + c +
+        '" stroke="' + (s.senator ? 'none' : '#93A4AE') + '"><title>' + esc(title) + '</title></rect>';
+    }).join('') + '<text x="200" y="224" fill="#93A4AE" text-anchor="middle" font-size="11">' +
+      esc(st.presidingOfficer.title + ' ' + st.presidingOfficer.name) + '</text>';
+  }
+  function inspect(t) {
+    const st = S.stateAt(t);
+    chamber(st);
+    const f = [];
+    const add = (k, v) => f.push('<div><dt>' + k + '</dt><dd>' + v + '</dd></div>');
+    if (st.started) {
+      const c = st.composition;
+      add('Seats', ['B', 'V', 'L', 'I'].filter((p) => c[p]).map((p) => '<span class="chip" style="--c:' + COLORS[p] + '"></span>' + c[p]).join(' ') + (c.vacant ? ' vacant ' + c.vacant : ''));
+      add('Majority Leader', st.majorityLeader ? esc(st.majorityLeader.name) + ' (' + NAMES[st.majority] + ')' : 'None yet');
+      add('Support', 'B ' + Math.round(st.support.B * 100) + '%, V ' + Math.round(st.support.V * 100) + '%, L ' + Math.round(st.support.L * 100) + '%');
+      add('Air-quality concern (stub)', Math.round(st.concern * 100) + '%');
+      add('Next election', st.nextElection);
+      add('Filibuster', st.filibuster ? esc(st.filibuster.name) + ' since ' + fmt(st.filibuster.start) : 'None');
+    } else {
+      add('Founding election', st.startDate);
+      add('First sitting', st.firstSitting);
+    }
+    $('facts').innerHTML = f.join('');
+
+    const scheme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    const v = S.styleVars(t, scheme);
+    const pixels = window.G && G.PIXELS ? G.PIXELS.slice(0, 2).map((p) => p.color) : ['#FF3B30', '#23B5E8'];
+    $('preview').style.background = v['--bg'];
+    $('preview').style.fontFamily = v['--body'];
+    $('preview').innerHTML = '<div style="font:700 1.3rem/1.1 ' + esc(v['--display']) + ';color:var(--ink)">Glacial under current law</div>' +
+      '<div class="panel" style="background:' + v['--surface'] + '">' + esc(st.laws['names.crawl']) + ' standings, <a href="#" style="color:' + v['--link'] + '">full archive</a></div>' +
+      '<div class="scr" style="background:' + v['--screen'] + ';box-shadow:0 0 0 6px ' + v['--bezel'] + '"><i style="left:38%;background:' + pixels[0] + '"></i><i style="left:35%;top:22px;background:' + pixels[1] + '"></i></div>' +
+      '<p style="margin:12px 0 0;color:var(--muted);font-size:0.9rem">Trophy: ' + esc(st.laws['names.trophy']) + '. Commentary tone: ' + esc(st.laws['commentary.tone']) + '.</p>';
+
+    const rows = Object.keys(st.laws).map((k) => {
+      let val = st.laws[k];
+      if (typeof val === 'object') val = 'hue ' + val.h + '°, saturation ' + val.s + '%, lightness ' + val.l + '%';
+      return '<tr><td>' + k + '</td><td>' + esc(val) + '</td></tr>';
+    });
+    $('laws').innerHTML = '<thead><tr><th>Law</th><th>In effect</th></tr></thead><tbody>' + rows.join('') + '</tbody>';
+
+    const bills = st.started ? st.bills.slice().sort((a, b) => a.no - b.no) : [];
+    $('bills').innerHTML = bills.length
+      ? '<thead><tr><th class="n">No.</th><th>Bill</th><th>Sponsor</th><th>Stage</th></tr></thead><tbody>' + bills.map((b) =>
+        '<tr><td class="n">' + b.no + '</td><td>' + esc(b.title) + '</td><td>' + esc(b.sponsorName) + '</td><td>' +
+        (b.stage === 'committee' ? 'Committee, reports ' + new Date(b.due).toISOString().slice(0, 10) : 'Awaiting a vote') + '</td></tr>').join('') + '</tbody>'
+      : '<tbody><tr><td class="status">No bills are before the Senate at this moment.</td></tr></tbody>';
+
+    const span = Math.max(1, +$('span').value || 60) * DAY;
+    const min = +$('imp').value;
+    const ev = S.eventsBetween(t - span, t).filter((e) => e.importance >= min).reverse().slice(0, 600);
+    $('feed').innerHTML = ev.length ? ev.map((e) => '<li><time>' + fmt(e.ms) + '</time><span class="imp" title="importance">' + e.importance +
+      '</span><span>' + esc(e.headline) + '</span></li>').join('') : '<li><span></span><span></span><span class="status">Nothing at this importance in the chosen span.</span></li>';
+  }
+
+  function toInput(ms) { return new Date(ms).toISOString().slice(0, 16); }
+  function fromInput() { const v = $('when').value; return v ? Date.parse(v + ':00Z') : Date.now(); }
+  const defaultMoment = Math.max(Date.now(), Date.UTC(2027, 1, 14, 22, 30));
+  $('when').value = toInput(defaultMoment);
+  $('inspect').addEventListener('click', () => inspect(fromInput()));
+  $('now').addEventListener('click', () => { $('when').value = toInput(Date.now()); inspect(Date.now()); });
+  $('imp').addEventListener('change', () => inspect(fromInput()));
+  $('span').addEventListener('change', () => inspect(fromInput()));
+  $('run').addEventListener('click', () => { $('runStatus').textContent = 'Simulating\u2026'; setTimeout(() => report(+$('years').value), 30); });
+
+  setTimeout(() => {
+    renderChecks();
+    report(10);
+    inspect(fromInput());
+  }, 30);
+})();
+</script>
+</body>
+</html>
