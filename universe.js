@@ -1332,6 +1332,8 @@
     // Optional: reads Glacial if its scripts are loaded. Events only; never touches state or randomness.
     const G = root.G;
     if (!G || typeof G.buildLeague !== 'function' || !G.PX) return;
+    // a host page that only needs the laws (such as Glacial) can skip this costly lookup
+    if (root.PixelUniverseOptions && root.PixelUniverseOptions.senateSkipGlacial) return;
     const d = new Date(t);
     const id = 'GP-' + d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1);
     try {
