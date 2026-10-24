@@ -67,6 +67,10 @@ Independents (usually one or two) each have a pet policy and trade their vote fo
 
 **Names.** When a generated name is already taken, the newcomer gets a numeral (Hex Halftone II).
 
+## Pixel City Society
+
+The Senate reads Pixel City Society (City's `society.js`), a hard dependency: `ready()` is false without it, and every page that loads the Senate must also load City's `universe.js` and `census.js`, the Exchange and `society.js`, in that order. From the May 2027 general election, each candidate's draw in a district is multiplied by Society's swing for their party there, from the district's leanings a fortnight before polling day. When a colour craze is running in the city, senators draft more colour bills, and those shift hue towards the craze (the bill's change records it as `craze`). Neither adds a draw from the Senate's random streams, so nothing before Society began is changed.
+
 ## Laws and guardrails
 
 | Key | Effect | Default |

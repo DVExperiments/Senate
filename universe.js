@@ -52,6 +52,10 @@
   // The Senate reads the Weather Bureau's climate layer (a root of the universe). It must load first:
   // without it the Senate would compute a different history, so it refuses to run instead.
   const climate = () => root.PixelUniverse && root.PixelUniverse.climate;
+  // Pixel City Society (City's society.js): its crazes reach the Senate's colour debates, and from the May 2027
+  // general election each district's mood a fortnight before polling day moves the vote. A hard dependency.
+  const society = () => root.PixelUniverse && root.PixelUniverse.society;
+  const swing = (districtName, party, day) => { const S = society(); return S && S.voteSwing ? S.voteSwing(districtName, party, day) : 1; };
   const weatherAt = (t) => climate().sample(t);
   /** Why a sitting is called off, judged at 18:30 on the day: a storm, a gale, or snow. */
   function adjournReason(day) {
@@ -359,7 +363,7 @@
     const w = cands.map((c) => {
       const aff = 1 / (0.6 + distance(dist, c));
       const sup = c.party === 'I' ? dist.ind + (c === inc ? 0.17 : 0.09) : st.support[c.party];
-      return sup * aff * c.quality * (c === inc ? 1.12 : 1) * (0.85 + r() * 0.3);
+      return sup * aff * c.quality * (c === inc ? 1.12 : 1) * (0.85 + r() * 0.3) * swing(dist.name, c.party, day);
     });
     let W = 0;
     for (const x of w) W += x;
@@ -591,8 +595,10 @@
     const st = ctx.st;
     const mods = modifiedKeys(st);
     const C = st.concern;
+    // a colour craze in the city gets senators talking about the city's colours
+    const fad = society() && society().colourFad ? society().colourFad(t) : null, fadPull = fad && fad.strength >= 0.08 ? fad.strength : 0;
     const kind = forcedKind || weighted(r, ['cosmetic', 'environmental', 'restoration'],
-      [0.22, 0.4 + C * 0.2, mods.length ? 0.08 + mods.length * 0.02 : 0]);
+      [0.22 + fadPull * 0.6, 0.4 + C * 0.2, mods.length ? 0.08 + mods.length * 0.02 : 0]);
     const tasteBase = { B: (r() - 0.5) * 0.2, V: (r() - 0.5) * 0.2, L: (r() - 0.5) * 0.2 };
     const extra = { B: r() - 0.5, V: r() - 0.5, L: r() - 0.5 };
     const conscienceRoll = r();
@@ -603,12 +609,13 @@
       const r1 = r(), r2 = r(), r3 = r(), r4 = r();
       if (sub === 'colour') {
         const key = weighted(() => r1, ['style.bg', 'style.surface', 'style.link', 'style.screen'], [3, 2, 2, 2]);
-        const field = r2 < 0.5 ? 'h' : r2 < 0.8 ? 's' : 'l';
+        const field = fadPull ? 'h' : r2 < 0.5 ? 'h' : r2 < 0.8 ? 's' : 'l'; // a craze is about hue
         const mag = field === 'h' ? 4 + Math.floor(r3 * 9) : field === 's' ? 3 + Math.floor(r3 * 8) : 1 + Math.floor(r3 * 3);
-        let sign = r4 < 0.5 ? 1 : -1;
+        let sign = fadPull ? fad.hueSign : r4 < 0.5 ? 1 : -1; // towards the colour everyone is wearing
         const cur = st.laws[key] ? st.laws[key][field] : 0;
         if (cur + sign * mag > SHIFT_LIMITS[field] || cur + sign * mag < -SHIFT_LIMITS[field]) sign = -sign;
         change = { key, op: 'shift', field, delta: sign * mag };
+        if (fadPull) change.craze = fad.name;
         aes = 0.7;
         if (field === 'h') { taste.B += extra.B * 0.6; taste.V += extra.V * 0.6; taste.L += extra.L * 0.6; }
         if (field === 's') { if (sign > 0) { taste.B += 0.3; taste.V -= 0.5; } else { taste.B -= 0.4; taste.V += 0.4; } }
@@ -1621,7 +1628,7 @@
       styleVars: (time, scheme) => styleVars(lawsAt(time), scheme),
       create: createSenate,
       calendar: { isSitting, isGeneralElection, electionsAfter, firstSitting: FIRST_SITTING, start: START, adjourned: (day) => (climate() ? adjournReason(day) : null) },
-      ready: () => !!climate(),
+      ready: () => !!climate() && !!society(),
       _internals: { rng, hash, START, DAY }
     };
   }
