@@ -134,3 +134,5 @@ All times are milliseconds since the Unix epoch, UTC.
 - Tune freely until then; nothing has happened yet.
 - Decide district names (currently the sixteen Glacial pixels).
 - Set `VERSION` to `1.0.0` the day before the founding election. After that, any change that alters past results needs a new era.
+
+From the May 2027 general election, a sitting senator's advantage at home is multiplied by Society's `incumbentFactor` for the district: more for a district that has grown and is happy, less for one that pixels are leaving (Society's migration).

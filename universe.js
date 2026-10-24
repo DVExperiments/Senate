@@ -55,6 +55,8 @@
   // Pixel City Society (City's society.js): its crazes reach the Senate's colour debates, and from the May 2027
   // general election each district's mood a fortnight before polling day moves the vote. A hard dependency.
   const society = () => root.PixelUniverse && root.PixelUniverse.society;
+  // a sitting senator does better at home when the district has grown and is happy, and worse when pixels are leaving
+  const incumbency = (districtName, day) => { const S = society(); return S && S.incumbentFactor ? S.incumbentFactor(districtName, day) : 1; };
   const swing = (districtName, party, day) => { const S = society(); return S && S.voteSwing ? S.voteSwing(districtName, party, day) : 1; };
   const weatherAt = (t) => climate().sample(t);
   /** Why a sitting is called off, judged at 18:30 on the day: a storm, a gale, or snow. */
@@ -363,7 +365,7 @@
     const w = cands.map((c) => {
       const aff = 1 / (0.6 + distance(dist, c));
       const sup = c.party === 'I' ? dist.ind + (c === inc ? 0.17 : 0.09) : st.support[c.party];
-      return sup * aff * c.quality * (c === inc ? 1.12 : 1) * (0.85 + r() * 0.3) * swing(dist.name, c.party, day);
+      return sup * aff * c.quality * (c === inc ? 1.12 * incumbency(dist.name, day) : 1) * (0.85 + r() * 0.3) * swing(dist.name, c.party, day);
     });
     let W = 0;
     for (const x of w) W += x;
