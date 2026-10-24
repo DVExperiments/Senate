@@ -57,6 +57,7 @@
   const society = () => root.PixelUniverse && root.PixelUniverse.society;
   // a sitting senator does better at home when the district has grown and is happy, and worse when pixels are leaving
   const incumbency = (districtName, day) => { const S = society(); return S && S.incumbentFactor ? S.incumbentFactor(districtName, day) : 1; };
+  const ALUMNI_FROM = Date.UTC(2028, 2, 1); // the first diplomas in Governance are awarded
   const swing = (districtName, party, day) => { const S = society(); return S && S.voteSwing ? S.voteSwing(districtName, party, day) : 1; };
   const weatherAt = (t) => climate().sample(t);
   /** Why a sitting is called off, judged at 18:30 on the day: a storm, a gale, or snow. */
@@ -231,7 +232,7 @@
       budget: null, shutdown: null, snap: null, lastDissolution: 0, lastElection: 0, ties: [], inquiries: []
     };
   }
-  function makePerson(r, st, party, district) {
+  function makePerson(r, st, party, district, day) {
     // Three tries for a fresh name; after that the newcomer takes a numeral (Hex Halftone II).
     let name, tries = 0;
     do { name = pick(r, FIRST) + ' ' + pick(r, LAST); tries++; } while (st.names[name] && tries < 3);
@@ -240,12 +241,19 @@
     const env = clamp((P ? P.env : r() * 2 - 1) + (r() - 0.5) * 0.7, -1, 1);
     const aes = clamp((P ? P.aes : r() * 2 - 1) + (r() - 0.5) * 0.7, -1, 1);
     const pet = { key: pick(r, POLICY_KEYS), dir: r() < 0.5 ? 1 : -1 };
-    return {
+    const person = {
       id: 'S' + (++st.seq.person), name, party, env: rd(env), aes: rd(aes),
       loyalty: rd(0.35 + r() * 0.65), ambition: rd(r()), quality: rd(0.85 + r() * 0.3), scandalRisk: rd(r()),
       pet: party === 'I' ? pet : null, district, seat: null, since: null, termsWon: 0, status: 'candidate', retiring: false,
       stats: { sponsored: 0, passed: 0, rebellions: 0, missed: 0, filibusters: 0, longestFilibusterMs: 0, scandals: 0 }
     };
+    // From 2028, some candidates are graduates of Pixel University's School of Governance (more each year), and they
+    // campaign a little better. Decided from the name, so nothing is drawn differently.
+    if (day >= ALUMNI_FROM) {
+      const share = Math.min(0.5, 0.1 + 0.1 * ((day - ALUMNI_FROM) / (365 * DAY)));
+      if (hash('senate:alumni:' + name) / 4294967296 < share) { person.alumni = 'Pixel University, School of Governance'; person.quality = rd(person.quality * 1.05); }
+    }
+    return person;
   }
   function roman(n) {
     const v = [[10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']];
@@ -355,10 +363,10 @@
     const inc = seat.senator ? st.people[seat.senator] : null;
     const incRuns = inc && !inc.retiring && inc.termsWon < TERM_LIMIT;
     const cands = [];
-    for (const p of PARTY_IDS) cands.push(incRuns && inc.party === p ? inc : makePerson(r, st, p, seat.district));
+    for (const p of PARTY_IDS) cands.push(incRuns && inc.party === p ? inc : makePerson(r, st, p, seat.district, day));
     const indRoll = r();
     if (incRuns && inc.party === 'I') cands.push(inc);
-    else if (indRoll < 0.1 + dist.ind * 2) cands.push(makePerson(r, st, 'I', seat.district));
+    else if (indRoll < 0.1 + dist.ind * 2) cands.push(makePerson(r, st, 'I', seat.district, day));
 
     const damp = rain ? (rain / 60 < 0.15 ? rain / 60 : 0.15) : 0;
     const total = Math.floor(dist.size * (0.55 + r() * 0.2 - damp));
@@ -1573,7 +1581,7 @@
       }
       const st = upTo(time).st;
       const c = counts(st);
-      const pub = (s) => s && { id: s.id, name: s.name, party: s.party, env: s.env, aes: s.aes, loyalty: s.loyalty,
+      const pub = (s) => s && { id: s.id, name: s.name, alumni: s.alumni || null, party: s.party, env: s.env, aes: s.aes, loyalty: s.loyalty,
         ambition: s.ambition, termsWon: s.termsWon, lameDuck: lameDuck(s), since: s.since ? ymd(s.since) : null, stats: s.stats, pet: s.pet };
       const leader = (p) => (st.leaders[p] ? pub(st.people[st.leaders[p]]) : null);
       return {
