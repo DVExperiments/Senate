@@ -17,7 +17,7 @@
   // ?at=2027-03-14T21:30 runs the site from that moment (UTC), so the Senate can be watched before launch.
   const q = new URLSearchParams(location.search);
   const at = q.get('at');
-  const parsed = at ? Date.parse(at.length <= 16 ? at + ':00Z' : at) : NaN;
+  const parsed = at ? Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(at) ? at + 'T00:00:00Z' : at.length <= 16 ? at + ':00Z' : at) : NaN;
   const offset = isNaN(parsed) ? 0 : parsed - Date.now();
   M.now = () => Date.now() + offset;
   M.timeTravel = !isNaN(parsed);
